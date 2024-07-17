@@ -51,6 +51,7 @@ class DbHandler:
             self.create_table(conn, CREATE_TABLE_SUBSCRIBER)
             self.create_table(conn, CREATE_TABLE_MESSAGES)
             self.create_table(conn, CREATE_TABLE_OFFSETS)
+            self.create_table(conn, CREATE_TABLE_CONDITIONS)
             conn.close()
 
     @staticmethod
@@ -229,6 +230,47 @@ class DbHandler:
         connection.close()
 
         return rows[0][3]
+
+    def set_condition(self, chat_id: int, condition: int) -> None:
+        """
+        Sets the condition of a given chat id.
+
+        :param chat_id: The chat id
+        :param condition: The condition
+        :return: None
+        """
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(INSERT_CONDITION, (chat_id, condition))
+        connection.commit()
+        connection.close()
+
+    def get_used_condition(self, chat_id: int) -> int:
+        """
+        Returns the condition of a given chat id.
+
+        :param chat_id: The chat id
+        :return: The condition (int)
+        """
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(SELECT_CONDITION, (chat_id,))
+
+        rows = cursor.fetchall()
+
+        connection.close()
+
+        return rows[0][0]
+
+    def get_used_conditions(self) -> List[int]:
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(SELECT_CONDITIONS)
+
+        rows = cursor.fetchall()
+
+        connection.close()
+        return [row[0] for row in rows]
 
     def get_condition_and_end_index(self, chat_id: int, date_str: str) -> Tuple[int, int]:
         """

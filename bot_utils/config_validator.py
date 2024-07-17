@@ -107,6 +107,8 @@ class ConfigValidator:
             if not (0 <= config.timeCalculationSettings.end_SurveysPerDay <= 1) and \
                     config.timeCalculationSettings.end_DelayMinutesBetweenSurveys <= 0:
                 error_list.append("'timeCalculationSettings.end_DelayMinutesBetweenSurveys' must be greater than 0")
+        if config.uniqueConditions and config.participantsEnterCondition:
+            error_list.append("You cannot use 'uniqueConditions' and 'participantsEnterCondition' at the same time.")
         return error_list
 
     @staticmethod

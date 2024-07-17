@@ -128,6 +128,7 @@ class Texts(object):
     subscribe_early: str
     subscribe_late: str
     subscribe_already: str
+    subscribe_max_participants: str
     subscribe_wakeup_time: str
     subscribe_condition: str
     subscribe_timezone: str
@@ -145,6 +146,7 @@ class Texts(object):
                  subscribe_early: str,
                  subscribe_late: str,
                  subscribe_already: str,
+                 subscribe_max_participants: str,
                  subscribe_wakeup_time: str,
                  subscribe_condition: str,
                  subscribe_timezone: str,
@@ -161,6 +163,7 @@ class Texts(object):
         self.subscribe_early: str = subscribe_early
         self.subscribe_late: str = subscribe_late
         self.subscribe_already: str = subscribe_already
+        self.subscribe_max_participants: str = subscribe_max_participants
         self.subscribe_wakeup_time: str = subscribe_wakeup_time
         self.subscribe_condition: str = subscribe_condition
         self.subscribe_timezone: str = subscribe_timezone
@@ -206,6 +209,7 @@ class Config(object):
     endSurveyReminderEnabled: bool
     endSurveyReminderDelayHours: int
     participantsEnterCondition: bool
+    uniqueConditions: bool
     urls: Urls
     surveyCommandEnabled: bool
     texts: Texts
@@ -229,6 +233,7 @@ class Config(object):
                  endSurveyReminderEnabled: bool,
                  endSurveyReminderDelayHours: int,
                  participantsEnterCondition: bool,
+                 uniqueConditions: bool,
                  urls: dict,
                  surveyCommandEnabled: bool,
                  texts: dict,
@@ -253,6 +258,7 @@ class Config(object):
         self.endSurveyReminderEnabled: bool = endSurveyReminderEnabled
         self.endSurveyReminderDelayHours: int = endSurveyReminderDelayHours
         self.participantsEnterCondition: bool = participantsEnterCondition
+        self.uniqueConditions: bool = uniqueConditions
         self.urls: Urls = Urls(**urls)
         self.surveyCommandEnabled: bool = surveyCommandEnabled
         self.texts: Texts = Texts(**texts)

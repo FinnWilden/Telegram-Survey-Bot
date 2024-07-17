@@ -215,6 +215,11 @@ def subscribe(update: Update, context: CallbackContext) -> int:
                            chat_id,
                            SUBSCRIPTION_ALREADY_SUBSCRIBED,
                            config_handler.config.texts.subscribe_already)
+    elif config_handler.config.uniqueConditions and not schedule_util.assign_condition(chat_id):
+        subscribe_rejected(context,
+                           chat_id,
+                           SUBSCRIPTION_CONDITIONS_FULL,
+                           config_handler.config.texts.subscribe_max_participants)
     else:
         logging.info(SUBSCRIPTION_HANDLE.format(chat_id))
         if not config_handler.config.useTimeZoneCalculation and \

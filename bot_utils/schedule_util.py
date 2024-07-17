@@ -171,6 +171,9 @@ class ScheduleUtil:
         end_date_times = self.__calculate_date_time_list(end_dates, wakeup_time, SurveyType.END, time_offset)
         end_distribution_list = self.calculate_end_distribution(end_date_times)
 
+        if self.config.uniqueConditions:
+            condition = self.db_handler.get_used_condition(chat_id)
+
         self.db_handler.insert_new_subscriber_entries(chat_id,
                                                       daily_date_times,
                                                       SurveyType.DAILY,
@@ -267,3 +270,21 @@ class ScheduleUtil:
             for _ in end_list:
                 end_distribution_list.append(randint(0, len(self.config.urls.end_url[0]) - 1))
             return end_distribution_list
+
+    def assign_condition(self, chat_id: int) -> bool:
+        """
+        Assigns a condition to a subscriber.
+
+        :param chat_id: The chat id of the subscriber
+        :return: None
+        """
+        used_conditions = self.db_handler.get_used_conditions()
+        all_conditions = [x for x in range(0, len(self.config.urls.start_url))]
+        free_conditions = [x for x in all_conditions if x not in used_conditions]
+        if len(free_conditions) == 0:
+            return False
+        else:
+            condition = free_conditions[randint(0, len(free_conditions) - 1)]
+            self.db_handler.set_condition(chat_id, condition)
+            return True
+

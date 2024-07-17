@@ -36,6 +36,11 @@ CREATE_TABLE_OFFSETS = """ CREATE TABLE IF NOT EXISTS offsets (
                                 offset integer
                         ); """
 
+CREATE_TABLE_CONDITIONS = """ CREATE TABLE IF NOT EXISTS conditions (
+                                chat_id integer,
+                                condition integer
+                            ); """
+
 INSERT_SUBSCRIBER = "INSERT INTO subscribers VALUES(?, ?, ?, ?, ?)"
 UPDATE_SUBSCRIBER = "UPDATE subscribers SET condition=? WHERE chat_id=?"
 SELECT_SUBSCRIBER_ALL = "SELECT * FROM subscribers"
@@ -57,3 +62,7 @@ DELETE_MESSAGE_ID = "DELETE FROM messages WHERE chat_id=? AND type=?"
 INSERT_OFFSET = "INSERT INTO offsets VALUES(?, ?)"
 SELECT_OFFSET = "SELECT offset FROM offsets WHERE chat_id=?"
 DELETE_OFFSET = "DELETE FROM offsets WHERE chat_id=?"
+
+INSERT_CONDITION = "INSERT INTO conditions VALUES(?, ?)"
+SELECT_CONDITION = "SELECT condition FROM conditions WHERE chat_id=?"
+SELECT_CONDITIONS = "SELECT condition FROM conditions"
