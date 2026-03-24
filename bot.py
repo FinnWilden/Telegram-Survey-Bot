@@ -225,7 +225,10 @@ def subscribe(update: Update, context: CallbackContext) -> int:
         if not config_handler.config.useTimeZoneCalculation and \
                 not config_handler.config.useTimeCalculation and \
                 not config_handler.config.participantsEnterCondition:
-            condition = config_handler.get_condition()
+            if config_handler.config.uniqueConditions:
+                condition = db_handler.get_used_condition(chat_id)
+            else:
+                condition = config_handler.get_condition()
             schedule_util.add_new_subscriber(chat_id, condition, send_notification_broadcast)
             send_subscribe_message(context, chat_id, condition)
         else:
@@ -305,7 +308,10 @@ def subscribe_timezone(update: Update, context: CallbackContext) -> int:
     db_handler.insert_time_offset(chat_id, offset)
     if not config_handler.config.participantsEnterCondition and \
             not config_handler.config.useTimeCalculation:
-        condition = config_handler.get_condition()
+        if config_handler.config.uniqueConditions:
+            condition = db_handler.get_used_condition(chat_id)
+        else:
+            condition = config_handler.get_condition()
         schedule_util.add_new_subscriber(chat_id, condition, send_notification_broadcast)
         send_subscribe_message(context, chat_id, condition)
         return ConversationHandler.END
@@ -340,7 +346,10 @@ def subscribe_wakeup_time(update: Update, context: CallbackContext) -> int:
             context.bot.deleteMessage(chat_id, message_id)
     wakeup_time: time = TimeUtil.get_time_from_str(update.message.text)
     logging.info(SUBSCRIPTION_WAKEUP_TIME.format(chat_id, wakeup_time))
-    condition: int = config_handler.get_condition()
+    if config_handler.config.uniqueConditions:
+        condition = db_handler.get_used_condition(chat_id)
+    else:
+        condition = config_handler.get_condition()
     schedule_util.add_new_subscriber(chat_id, condition, send_notification_broadcast, wakeup_time)
     if config_handler.config.participantsEnterCondition:
         subscribe_ask(context,

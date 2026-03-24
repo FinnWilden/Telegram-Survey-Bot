@@ -301,6 +301,7 @@ class DbHandler:
         cursor = connection.cursor()
         cursor.execute(DELETE_MESSAGE, (chat_id,))
         cursor.execute(DELETE_SUBSCRIBER_CHAT_ID, (chat_id,))
+        cursor.execute(DELETE_CONDITION, (chat_id,))
         connection.commit()
         connection.close()
 
