@@ -17,17 +17,18 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Telegram Survey Bot.  If not, see <http://www.gnu.org/licenses/>.
 """
+import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from sqlite3 import Error, Connection
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 from bot_utils.bot_enums import SurveyType
-from bot_utils.sql_statements import CREATE_TABLE_MESSAGES, CREATE_TABLE_SUBSCRIBER, INSERT_MESSAGE, \
-    INSERT_SUBSCRIBER, SELECT_SUBSCRIBER_DATE_TYPE, SELECT_SUBSCRIBER_CHAT_ID, DELETE_MESSAGE, \
-    DELETE_SUBSCRIBER, SELECT_MESSAGE_ID, SELECT_MESSAGE_TYPE, DELETE_MESSAGE_ID, DELETE_MESSAGE_TYPE, \
-    SELECT_SUBSCRIBER_ID_DATE, UPDATE_SUBSCRIBER
+from bot_utils.bot_utils import destruct_tuple
+from bot_utils.sql_statements import *
+
+from bot_utils.logging_strings import *
 
 dbFile = Path("db/") / "userIdDb.db"
 
@@ -35,18 +36,22 @@ dbFile = Path("db/") / "userIdDb.db"
 class DbHandler:
     """
     A class for all interactions to the SQLite Database,
-    which stores the chat-ids, message-ids and other information to adress the users.
+    which stores the chat-ids, message-ids and other information to address the users.
     """
+    logger: logging
 
     def __init__(self) -> None:
         """
         Creates a connection to the SQLite Database-file and
         create, if not exist, all needed tables.
         """
+        self.logger = logging.getLogger(__name__)
         conn = self.create_connection()
         if conn is not None:
             self.create_table(conn, CREATE_TABLE_SUBSCRIBER)
             self.create_table(conn, CREATE_TABLE_MESSAGES)
+            self.create_table(conn, CREATE_TABLE_OFFSETS)
+            self.create_table(conn, CREATE_TABLE_CONDITIONS)
             conn.close()
 
     @staticmethod
@@ -116,10 +121,14 @@ class DbHandler:
         end_distribution: int = -1
         connection = self.create_connection()
         cursor = connection.cursor()
+        self.logger.info(DB_INSERT_SUBSCRIBER_ENTRY)
         for i, date in enumerate(date_list):
             if survey_type == SurveyType.END and end_distribution_list is not None:
                 end_distribution = end_distribution_list[i]
             date_str = date.strftime("%Y-%m-%d-%H:%M")
+            self.logger.info(
+                DB_INSERT_SUBSCRIBER_ENTRY_DATA.format(chat_id, date_str, survey_type.name, condition, end_distribution)
+            )
             cursor.execute(INSERT_SUBSCRIBER, (chat_id, date_str, survey_type.name, condition, end_distribution))
         connection.commit()
         connection.close()
@@ -132,6 +141,7 @@ class DbHandler:
         :param condition: The new entered condition of the subscriber
         :return: None
         """
+        self.logger.info(DB_UPDATE_CONDITION.format(chat_id, condition))
         connection = self.create_connection()
         cursor = connection.cursor()
         cursor.execute(UPDATE_SUBSCRIBER, (condition, chat_id))
@@ -172,12 +182,44 @@ class DbHandler:
         connection.close()
         return rows
 
+    def query_subscribers_emergency_start(self) -> List[Tuple[datetime, SurveyType]]:
+        """
+        Query all currently scheduled survey dates to reschedule them.
+
+        :return: scheduled survey dates as list of tuples (datetime, SurveyType)
+        """
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(SELECT_SUBSCRIBER_EMERGENCY)
+
+        rows = cursor.fetchall()
+
+        connection.close()
+
+        return list(map(
+            destruct_tuple(lambda date_str, type_str:
+                           (datetime.strptime(date_str, "%Y-%m-%d-%H:%M"), SurveyType[type_str])),
+            rows
+        ))
+
+    def delete_all_subscribers(self) -> None:
+        """
+        Delete all subscribers from the subscribers table.
+
+        :return: None
+        """
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(DELETE_ALL_SUBSCRIBERS)
+        connection.commit()
+        connection.close()
+
     def get_condition(self, chat_id: int) -> int:
         """
         Returns the condition of a given chat id.
 
         :param chat_id: The chat id
-        :return: The condition
+        :return: The condition (int)
         """
         connection = self.create_connection()
         cursor = connection.cursor()
@@ -188,6 +230,47 @@ class DbHandler:
         connection.close()
 
         return rows[0][3]
+
+    def set_condition(self, chat_id: int, condition: int) -> None:
+        """
+        Sets the condition of a given chat id.
+
+        :param chat_id: The chat id
+        :param condition: The condition
+        :return: None
+        """
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(INSERT_CONDITION, (chat_id, condition))
+        connection.commit()
+        connection.close()
+
+    def get_used_condition(self, chat_id: int) -> int:
+        """
+        Returns the condition of a given chat id.
+
+        :param chat_id: The chat id
+        :return: The condition (int)
+        """
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(SELECT_CONDITION, (chat_id,))
+
+        rows = cursor.fetchall()
+
+        connection.close()
+
+        return rows[0][0]
+
+    def get_used_conditions(self) -> List[int]:
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(SELECT_CONDITIONS)
+
+        rows = cursor.fetchall()
+
+        connection.close()
+        return [row[0] for row in rows]
 
     def get_condition_and_end_index(self, chat_id: int, date_str: str) -> Tuple[int, int]:
         """
@@ -217,7 +300,8 @@ class DbHandler:
         connection = self.create_connection()
         cursor = connection.cursor()
         cursor.execute(DELETE_MESSAGE, (chat_id,))
-        cursor.execute(DELETE_SUBSCRIBER, (chat_id,))
+        cursor.execute(DELETE_SUBSCRIBER_CHAT_ID, (chat_id,))
+        cursor.execute(DELETE_CONDITION, (chat_id,))
         connection.commit()
         connection.close()
 
@@ -273,3 +357,38 @@ class DbHandler:
         connection.commit()
         connection.close()
         return rows
+
+    def insert_time_offset(self, chat_id: int, offset: int) -> None:
+        """
+        Insert the time zone offset for a specific chat id.
+
+        :param chat_id: the chat id
+        :param offset: the timezone offset
+        :return: None
+        """
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(INSERT_OFFSET, (chat_id, offset))
+        connection.commit()
+        connection.close()
+
+    def get_time_offset(self, chat_id: int) -> int:
+        """
+        Return the time zone offset for a specific chat id.\n
+        Return 0 if no time zone offset is stored for the chat id.
+
+        :param chat_id: the chat id
+        :return: the time zone offset (int)
+        """
+        connection = self.create_connection()
+        cursor = connection.cursor()
+        cursor.execute(SELECT_OFFSET, (chat_id,))
+
+        rows = cursor.fetchall()
+
+        connection.close()
+
+        if not rows or not rows[0]:
+            return 0
+        else:
+            return rows[0][0]

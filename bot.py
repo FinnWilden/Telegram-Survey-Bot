@@ -34,21 +34,31 @@ from telegram.ext.callbackcontext import CallbackContext
 from telegram.utils.request import Request
 
 from bot_utils.bot_enums import SurveyType
-from bot_utils.bot_util_types import KeyboardBuilder
+from bot_utils.bot_utils import KeyboardBuilder
 from bot_utils.config_handler import ConfigHandler
 from bot_utils.config_validator import ConfigValidationException
 from bot_utils.db_handler import DbHandler
-from bot_utils.logging_util import LoggingUtil
+from bot_utils.emergency_start import EmergencyStart
 from bot_utils.message_queue_bot import MessageQueueBot
 from bot_utils.schedule_util import ScheduleUtil
 from bot_utils.time_util import TimeUtil
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+from bot_utils.logging_strings import *
+
+# noinspection PyArgumentList
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s-%(name)s-%(levelname)s: %(message)s',
+    handlers=[
+        logging.FileHandler("log/log_{}.log".format(datetime.now().strftime("%Y%m%d-%H%M%S"))),
+        logging.StreamHandler()
+    ]
+)
 logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
 
-TIME_STATE = 0
-CONDITION_STATE = 1
+TIMEZONE_STATE = 0
+TIME_STATE = 1
+CONDITION_STATE = 2
 ER_YES = "ER_YES"
 ER_NO = "ER_NO"
 global_bot: MessageQueueBot
@@ -102,14 +112,20 @@ def init_handlers(dispatcher: Dispatcher) -> None:
         dispatcher.add_handler(CommandHandler("survey", send_survey))
     if config_handler.config.endSurveyReminderEnabled:
         dispatcher.add_handler(CallbackQueryHandler(handle_end_survey_reminder_callback))
-    if config_handler.config.useTimeCalculation or config_handler.config.participantsEnterCondition:
+    if config_handler.config.useTimeCalculation or \
+            config_handler.config.participantsEnterCondition or \
+            config_handler.config.useTimeZoneCalculation:
         states: Dict[int, List[Handler]] = {}
+        if config_handler.config.useTimeZoneCalculation:
+            regex_str = r"^\d{4}\.(0?[1-9]|1[012])\.(0?[1-9]|[12][0-9]|3[01])\-(0\d|1\d|2\d|\d):[0-5]\d$"
+            regex_handler_timezone = MessageHandler(Filters.regex(regex_str), subscribe_timezone)
+            states[TIMEZONE_STATE] = [regex_handler_timezone]
         if config_handler.config.participantsEnterCondition:
             regex_str = "^[0-%d]$" % (config_handler.get_condition_count() - 1)
             regex_handler_condition = MessageHandler(Filters.regex(regex_str), subscribe_condition)
             states[CONDITION_STATE] = [regex_handler_condition]
         if config_handler.config.useTimeCalculation:
-            regex_handler_wakeup = MessageHandler(Filters.regex("^(0[0-9]|1[0-9]|2[0-3]|[0-9]):[0-5][0-9]$"),
+            regex_handler_wakeup = MessageHandler(Filters.regex(r"^(0[0-9]|1[0-9]|2[0-3]|[0-9]):[0-5][0-9]$"),
                                                   subscribe_wakeup_time)
             states[TIME_STATE] = [regex_handler_wakeup]
         conversation_handler = ConversationHandler(
@@ -135,10 +151,6 @@ def schedule_notifications() -> None:
                                                config_handler.config.subscription_deadline,
                                                db_handler.query_and_delete_message_ids_by_type,
                                                SurveyType.SUBSCRIBE)
-
-    schedule_util.schedule_surveys(send_notification_broadcast, SurveyType.DAILY)
-
-    schedule_util.schedule_surveys(send_notification_broadcast, SurveyType.END)
 
 
 def start_polling(updater: Updater, message_queue: MessageQueue) -> None:
@@ -189,60 +201,134 @@ def subscribe(update: Update, context: CallbackContext) -> int:
     chat_id = update.effective_chat.id
     curr_date = datetime.now()
     if curr_date < config_handler.config.subscription_start_date:
-        msg = context.bot.sendMessage(chat_id=chat_id, text=config_handler.config.texts.subscribe_early)
-        schedule_util.schedule_delete_message(delete_message, 1, chat_id, msg.message_id)
+        subscribe_rejected(context,
+                           chat_id,
+                           SUBSCRIPTION_EARLY,
+                           config_handler.config.texts.subscribe_early)
     elif curr_date > config_handler.config.subscription_deadline:
-        msg = context.bot.sendMessage(chat_id=chat_id, text=config_handler.config.texts.subscribe_late)
-        schedule_util.schedule_delete_message(delete_message, 1, chat_id, msg.message_id)
+        subscribe_rejected(context,
+                           chat_id,
+                           SUBSCRIPTION_LATE,
+                           config_handler.config.texts.subscribe_late)
     elif db_handler.is_already_subscribed(chat_id):
-        msg = context.bot.sendMessage(chat_id=chat_id, text=config_handler.config.texts.subscribe_already)
-        schedule_util.schedule_delete_message(delete_message, 1, chat_id, msg.message_id)
+        subscribe_rejected(context,
+                           chat_id,
+                           SUBSCRIPTION_ALREADY_SUBSCRIBED,
+                           config_handler.config.texts.subscribe_already)
+    elif config_handler.config.uniqueConditions and not schedule_util.assign_condition(chat_id):
+        subscribe_rejected(context,
+                           chat_id,
+                           SUBSCRIPTION_CONDITIONS_FULL,
+                           config_handler.config.texts.subscribe_max_participants)
     else:
-        condition = config_handler.get_condition()
-        if not config_handler.config.participantsEnterCondition and schedule_util.add_subscriber(chat_id, condition):
+        logging.info(SUBSCRIPTION_HANDLE.format(chat_id))
+        if not config_handler.config.useTimeZoneCalculation and \
+                not config_handler.config.useTimeCalculation and \
+                not config_handler.config.participantsEnterCondition:
+            if config_handler.config.uniqueConditions:
+                condition = db_handler.get_used_condition(chat_id)
+            else:
+                condition = config_handler.get_condition()
+            schedule_util.add_new_subscriber(chat_id, condition, send_notification_broadcast)
             send_subscribe_message(context, chat_id, condition)
         else:
-            if config_handler.config.useTimeCalculation:
-                text = config_handler.config.texts.subscribe_wakeup_time + " (HH:MM)"
-                msg = context.bot.sendMessage(chat_id=chat_id,
-                                              text=text)
-                db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE)
+            if config_handler.config.useTimeZoneCalculation:
+                subscribe_ask(context,
+                              chat_id,
+                              SUBSCRIPTION_TIMEZONE,
+                              config_handler.config.texts.subscribe_timezone + " (YYYY.MM.DD-HH:MM)")
+                return TIMEZONE_STATE
+            elif config_handler.config.useTimeCalculation:
+                subscribe_ask(context,
+                              chat_id,
+                              SUBSCRIPTION_TIME_CALC,
+                              config_handler.config.texts.subscribe_wakeup_time + " (HH:MM)")
                 return TIME_STATE
             else:
-                text = config_handler.config.texts.subscribe_condition + \
-                       " (0-%d)" % (config_handler.get_condition_count() - 1)
-                msg = context.bot.sendMessage(chat_id=chat_id,
-                                              text=text)
-                db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE)
+                subscribe_ask(context,
+                              chat_id,
+                              SUBSCRIPTION_CONDITION,
+                              config_handler.config.texts.subscribe_condition +
+                              " (0-%d)" % (config_handler.get_condition_count() - 1))
                 return CONDITION_STATE
 
 
-def error(update: Update, context: CallbackContext) -> None:
+def subscribe_rejected(context: CallbackContext, chat_id: int, log_msg: str, usr_msg) -> None:
+    """
+    Helper method to tell the user, that the subscribe was rejected
+
+    :param context: the CallbackContext of the chat
+    :param chat_id: the chat id of the user
+    :param log_msg: the log message
+    :param usr_msg: the message for the user, containing the reason for the rejection
+    :return: None
+    """
+    logging.info(SUBSCRIPTION_REJECTED.format(chat_id, log_msg))
+    msg = context.bot.sendMessage(chat_id=chat_id, text=usr_msg)
+    schedule_util.schedule_delete_message(delete_message, 1, chat_id, msg.message_id)
+
+
+def subscribe_ask(context: CallbackContext,
+                  chat_id: int,
+                  log_msg: str,
+                  usr_msg: str) -> None:
+    """
+    Helper method for the subscribe process.
+
+    :param context: the CallbackContext of the chat
+    :param chat_id: the chat id of the user
+    :param log_msg: the log message
+    :param usr_msg: the message which should be sent to the user
+    :return: None
+    """
+    logging.info(SUBSCRIPTION_ASK.format(chat_id, log_msg))
+    msg = context.bot.sendMessage(chat_id=chat_id,
+                                  text=usr_msg)
+    db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE)
+
+
+def error(update: object, context: CallbackContext) -> None:
     """
     Log Errors caused by Updates.
     """
     logging.error("Update %s caused error %s" % (update, context.error))
 
 
-def subscribe_condition(update: Update, context: CallbackContext) -> int:
+def subscribe_timezone(update: Update, context: CallbackContext) -> int:
     """
-    Handles messages with the condition number of the user.
+    Handles messages with the current time of the user and calculate the time offset.
 
     :param update: the Update of the subscribe command
     :param context: the CallbackContext of the chat
     :return: the conversation state (int)
     """
     chat_id = update.effective_chat.id
-    message_ids = db_handler.query_and_delete_message_ids([chat_id], SurveyType.SUBSCRIBE)
-    for chat_id, message_id in message_ids:
-        context.bot.deleteMessage(chat_id, message_id)
-    condition = int(update.message.text)
-    if config_handler.config.useTimeCalculation:
-        db_handler.update_subscriber_condition(chat_id, condition)
+    offset = TimeUtil.get_time_offset(datetime.strptime(update.message.text, "%Y.%m.%d-%H:%M"))
+    logging.info(SUBSCRIPTION_TIMEZONE_DELTA.format(chat_id, offset))
+    db_handler.insert_time_offset(chat_id, offset)
+    if not config_handler.config.participantsEnterCondition and \
+            not config_handler.config.useTimeCalculation:
+        if config_handler.config.uniqueConditions:
+            condition = db_handler.get_used_condition(chat_id)
+        else:
+            condition = config_handler.get_condition()
+        schedule_util.add_new_subscriber(chat_id, condition, send_notification_broadcast)
+        send_subscribe_message(context, chat_id, condition)
+        return ConversationHandler.END
     else:
-        schedule_util.add_subscriber(chat_id, condition)
-    send_subscribe_message(context, chat_id, condition)
-    return ConversationHandler.END
+        if config_handler.config.useTimeCalculation:
+            subscribe_ask(context,
+                          chat_id,
+                          SUBSCRIPTION_TIME_CALC,
+                          config_handler.config.texts.subscribe_wakeup_time + " (HH:MM)")
+            return TIME_STATE
+        else:
+            subscribe_ask(context,
+                          chat_id,
+                          SUBSCRIPTION_CONDITION,
+                          config_handler.config.texts.subscribe_condition +
+                          " (0-%d)" % (config_handler.get_condition_count() - 1))
+            return CONDITION_STATE
 
 
 def subscribe_wakeup_time(update: Update, context: CallbackContext) -> int:
@@ -259,18 +345,44 @@ def subscribe_wakeup_time(update: Update, context: CallbackContext) -> int:
         for chat_id, message_id in message_ids:
             context.bot.deleteMessage(chat_id, message_id)
     wakeup_time: time = TimeUtil.get_time_from_str(update.message.text)
-    condition: int = config_handler.get_condition()
-    schedule_util.add_subscriber_time_calculated(chat_id, condition, wakeup_time, send_notification_broadcast)
+    logging.info(SUBSCRIPTION_WAKEUP_TIME.format(chat_id, wakeup_time))
+    if config_handler.config.uniqueConditions:
+        condition = db_handler.get_used_condition(chat_id)
+    else:
+        condition = config_handler.get_condition()
+    schedule_util.add_new_subscriber(chat_id, condition, send_notification_broadcast, wakeup_time)
     if config_handler.config.participantsEnterCondition:
-        text = config_handler.config.texts.subscribe_condition + \
-               " (0-%d)" % (config_handler.get_condition_count() - 1)
-        msg = context.bot.sendMessage(chat_id=chat_id,
-                                      text=text)
-        db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE)
+        subscribe_ask(context,
+                      chat_id,
+                      SUBSCRIPTION_CONDITION,
+                      config_handler.config.texts.subscribe_condition +
+                      " (0-%d)" % (config_handler.get_condition_count() - 1))
         return CONDITION_STATE
     else:
         send_subscribe_message(context, chat_id, condition)
         return ConversationHandler.END
+
+
+def subscribe_condition(update: Update, context: CallbackContext) -> int:
+    """
+    Handles messages with the condition number of the user.
+
+    :param update: the Update of the subscribe command
+    :param context: the CallbackContext of the chat
+    :return: the conversation state (int)
+    """
+    chat_id = update.effective_chat.id
+    message_ids = db_handler.query_and_delete_message_ids([chat_id], SurveyType.SUBSCRIBE)
+    for chat_id, message_id in message_ids:
+        context.bot.deleteMessage(chat_id, message_id)
+    condition = int(update.message.text)
+    logging.info(SUBSCRIPTION_GOT_CONDITION.format(chat_id, condition))
+    if config_handler.config.useTimeCalculation:
+        db_handler.update_subscriber_condition(chat_id, condition)
+    else:
+        schedule_util.add_new_subscriber(chat_id, condition, send_notification_broadcast)
+    send_subscribe_message(context, chat_id, condition)
+    return ConversationHandler.END
 
 
 def send_subscribe_message(context: CallbackContext, chat_id: int, condition: int) -> None:
@@ -282,6 +394,7 @@ def send_subscribe_message(context: CallbackContext, chat_id: int, condition: in
     :param condition: The condition
     :return: None
     """
+    logging.info(SUBSCRIPTION_FINISHED.format(chat_id))
     mark_up = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.SUBSCRIBE, condition)
     msg = context.bot.sendMessage(chat_id=chat_id,
                                   text=config_handler.config.texts.subscribe,
@@ -305,18 +418,24 @@ def subscribe_wakeup_time_fallback(update: Update, context: CallbackContext) -> 
     chat_id = update.effective_chat.id
     db_handler.insert_message_id(chat_id, update.message.message_id, SurveyType.SUBSCRIBE)
     state_code = conversation_handler.conversations[(chat_id, chat_id)]
-    if state_code == TIME_STATE:
-        text = config_handler.config.texts.subscribe_wakeup_time + " (HH:MM)"
-        msg = context.bot.sendMessage(chat_id=chat_id,
-                                      text=text)
-        db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE)
+    if state_code == TIMEZONE_STATE:
+        subscribe_ask(context,
+                      chat_id,
+                      SUBSCRIPTION_TIMEZONE,
+                      config_handler.config.texts.subscribe_timezone + " (YYYY.MM.DD-HH:MM)")
+        return TIMEZONE_STATE
+    elif state_code == TIME_STATE:
+        subscribe_ask(context,
+                      chat_id,
+                      SUBSCRIPTION_TIME_CALC,
+                      config_handler.config.texts.subscribe_wakeup_time + " (HH:MM)")
         return TIME_STATE
     else:
-        text = config_handler.config.texts.subscribe_condition + \
-               " (0-%d)" % (config_handler.get_condition_count() - 1)
-        msg = context.bot.sendMessage(chat_id=chat_id,
-                                      text=text)
-        db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE)
+        subscribe_ask(context,
+                      chat_id,
+                      SUBSCRIPTION_CONDITION,
+                      config_handler.config.texts.subscribe_condition +
+                      " (0-%d)" % (config_handler.get_condition_count() - 1))
         return CONDITION_STATE
 
 
@@ -330,6 +449,7 @@ def unsubscribe(update: Update, context: CallbackContext) -> None:
     :return: None
     """
     chat_id = update.effective_chat.id
+    logging.info(UNSUBSCRIBE.format(chat_id))
     db_handler.remove_subscriber(chat_id)
     context.bot.sendMessage(chat_id=chat_id, text=config_handler.config.texts.unsubscribe)
 
@@ -362,7 +482,7 @@ def send_survey(update: Update, context: CallbackContext) -> None:
     condition = db_handler.get_condition(chat_id)
     markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.DAILY, condition)
 
-    LoggingUtil.print_send_survey_command(logging, chat_id, condition, SurveyType.DAILY)
+    logging.info(SEND_SURVEY.format(SurveyType.DAILY.name, chat_id))
 
     msg: Message = context.bot.sendMessage(chat_id=chat_id,
                                            text=config_handler.config.texts.survey_reply,
@@ -397,14 +517,13 @@ def send_notification_broadcast(survey_type: SurveyType, job_id: str, date_str: 
 
     msg_text: str = config_handler.get_message(survey_type)
 
-    LoggingUtil.print_send_broadcast(logging, subscriber_information, survey_type)
-
     for chat_id, condition, end_index in subscriber_information:
         markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(config_handler,
                                                                             survey_type,
                                                                             condition,
                                                                             end_index)
         try:
+            logging.info(SEND_SURVEY.format(survey_type.name, chat_id))
             msg = global_bot.sendMessage(chat_id=chat_id, text=msg_text, reply_markup=markup)
             db_handler.insert_message_id(chat_id, msg.message_id, survey_type)
         except Unauthorized as err:
@@ -462,6 +581,7 @@ def send_end_survey_reminder(chat_id_list: List[int], date_str: str) -> None:
     markup: InlineKeyboardMarkup = InlineKeyboardMarkup(KeyboardBuilder.build_menu(button_list, n_cols=1))
 
     for chat_id in chat_id_list:
+        logging.info(SEND_SURVEY.format("END REMINDER", chat_id))
         global_bot.sendMessage(chat_id=chat_id, text=config_handler.config.texts.endSurveyReminder, reply_markup=markup)
 
 
@@ -542,12 +662,12 @@ def main() -> None:
         for message in err.message_list:
             logging.error(message)
         logging.info("Exiting... press Enter")
-        raw_input()
+        input()
         sys.exit(-1)
     except (ValueError, TypeError, KeyError) as err:
         logging.error(str(type(err).__name__) + ": " + str(err))
         logging.info("Exiting...")
-        raw_input()
+        input()
         sys.exit(-1)
     logging.info("Init...")
     executors = {
@@ -561,12 +681,13 @@ def main() -> None:
         logging.error(err.message)
         logging.info("Check your API-Token in the config file")
         logging.info("Exiting...")
-        raw_input()
+        input()
         sys.exit(-1)
     updater: Updater = init_updater(global_bot)
     db_handler = DbHandler()
     schedule_util = ScheduleUtil(scheduler, config_handler.config, db_handler)
     init_handlers(updater.dispatcher)
+    EmergencyStart(schedule_util, db_handler, send_notification_broadcast)
     schedule_notifications()
     logging.info("Start...")
     start_polling(updater, message_queue)

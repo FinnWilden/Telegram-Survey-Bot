@@ -1,26 +1,28 @@
 {
-    "api_token": "<Your telegram bot api token here>",
+    "api_token": "your_api_token_here",
     "surveyCommandEnabled": true,
     "participantsEnterCondition": false,
-    "subscription_start_date": "2020-01-27 00:00",
-    "subscription_deadline": "2020-02-02 00:00",
-    "daily_dates": ["2020-01-23", "2020-01-24", "2020-01-25"],
+    "uniqueConditions": true,
+    "subscription_start_date": "2020-05-19 00:00",
+    "subscription_deadline": "2020-06-29 00:00",
+    "daily_dates": ["2020-08-23", "2020-08-24", "2020-08-25"],
     "daily_times": [
         ["12:18", "12:20", "10:52", "10:42", "16:45"],
         ["10:00", "12:00"],
         ["10:00"]
     ],
-    "end_dates": ["2020-01-26", "2020-01-27"],
+    "end_dates": ["2020-08-26", "2020-08-27"],
     "end_times": [
         ["08:00", "18:45"],
         ["10:00", "11:20"]
     ],
-    "useDayCalculation": true,
+    "useTimeZoneCalculation": true,
+    "useDayCalculation": false,
     "dayCalculationSettings": {
         "daily_SurveyDays": [1, 2, 5],
         "end_SurveyDays": [7, 9]
     },
-    "useTimeCalculation": true,
+    "useTimeCalculation": false,
     "timeCalculationSettings": {
         "daily_DelayMinutesAfterWakeup": 30,
         "daily_SurveysPerDay": 3,
@@ -66,9 +68,11 @@
         "subscribe": "You will get now reminders for the actual survey. Please fill out the start survey.",
         "subscribe_early": "Sorry, the survey has not started yet.",
         "subscribe_late": "Sorry, the survey has already started.",
+        "subscribe_max_participants": "Sorry, the maximum number of participants has been reached.",
         "subscribe_already": "Sorry, you are already subscribed.",
         "subscribe_wakeup_time": "Please tell me your wakeup time in the format",
         "subscribe_condition": "Please enter your condition number",
+        "subscribe_timezone": "Please tell me your current date and time in the format",
         "unsubscribe": "You will get no longer reminder for actual surveys.",
         "daily_reminder": "Hi there, it is time for a daily survey.",
         "end_reminder": "Hi, it is time for the end survey.",
