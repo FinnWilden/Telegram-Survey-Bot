@@ -17,7 +17,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Telegram Survey Bot.  If not, see <http://www.gnu.org/licenses/>.
 """
-from typing import List
+from __future__ import annotations
 
 from bot_utils.bot_enums import EndUrlDistribution
 from bot_utils.config import Config
@@ -27,21 +27,30 @@ class ConfigValidationException(Exception):
     """
     Exception for config validation errors.
     """
-    message_list: List[str]
+    message_list: list[str]
 
-    def __init__(self, message_list: List[str]):
+    def __init__(self, message_list: list[str]) -> None:
         """
         Constructor.
 
         :param message_list: list with error messages
         """
         self.message_list = message_list
+        super().__init__("\n".join(message_list))
 
 
 class ConfigValidator:
     """
     Util class for config validation.
     """
+
+    @staticmethod
+    def _all_inner_lengths_equal(values: list[list]) -> bool:
+        if not values:
+            return False
+
+        first_length = len(values[0])
+        return all(len(value) == first_length for value in values)
 
     @staticmethod
     def validate_config(config: Config) -> None:
@@ -52,7 +61,7 @@ class ConfigValidator:
         :param config: the config instance
         :return: None
         """
-        error_list: List[str] = []
+        error_list: list[str] = []
         error_list.extend(ConfigValidator.validate_dates_and_times(config))
         error_list.extend(ConfigValidator.validate_link_deletion_settings(config))
         error_list.extend(ConfigValidator.validate_urls(config))
@@ -60,14 +69,14 @@ class ConfigValidator:
             raise ConfigValidationException(error_list)
 
     @staticmethod
-    def validate_dates_and_times(config: Config) -> List[str]:
+    def validate_dates_and_times(config: Config) -> list[str]:
         """
         Validates all dates and times in the config.
 
         :param config: The config instance
-        :return: The List of error messages. Empty when there are no errors
+        :return: The list of error messages. Empty when there are no errors
         """
-        error_list: List[str] = []
+        error_list: list[str] = []
         if config.subscription_start_date > config.subscription_deadline:
             error_list.append("subscription start date is after subscription deadline")
         if not config.useDayCalculation and not config.useTimeCalculation:
@@ -112,14 +121,14 @@ class ConfigValidator:
         return error_list
 
     @staticmethod
-    def validate_link_deletion_settings(config: Config) -> List[str]:
+    def validate_link_deletion_settings(config: Config) -> list[str]:
         """
         Validates the link deletion settings.
 
         :param config: The config instance
-        :return: The List of error messages. Empty when there are no errors
+        :return: The list of error messages. Empty when there are no errors
         """
-        error_list: List[str] = []
+        error_list: list[str] = []
         if config.linkDeletionSettings.start_DeleteLinkTimer and \
                 config.linkDeletionSettings.start_DeleteDelayMinutes <= 0:
             error_list.append("'linkDeletionSettings.start_DeleteDelayMinutes' must be greater than 0")
@@ -134,14 +143,14 @@ class ConfigValidator:
         return error_list
 
     @staticmethod
-    def validate_urls(config: Config) -> List[str]:
+    def validate_urls(config: Config) -> list[str]:
         """
         Validates the urls.
 
         :param config: The config instance
-        :return: The List of error messages. Empty when there are no errors
+        :return: The list of error messages. Empty when there are no errors
         """
-        error_list: List[str] = []
+        error_list: list[str] = []
         len_start = len(config.urls.start_url)
         len_daily = len(config.urls.daily_url)
         len_end = len(config.urls.end_url)
@@ -153,19 +162,18 @@ class ConfigValidator:
                 for i, condition_links in enumerate(config.urls.end_url, start=1):
                     if len(condition_links) != time_count:
                         msg = "Different count of links found at position " + str(i) \
-                              + "in 'end_url', while 'end_SurveysPerDay' are " + str(time_count)
+                              + " in 'end_url', while 'end_SurveysPerDay' are " + str(time_count)
                         error_list.append(msg)
             else:
-                it = iter(config.end_times)
-                len_fst = len(next(it))
-                if not all(len(l) == len_fst for l in it):
+                if not ConfigValidator._all_inner_lengths_equal(config.end_times):
                     msg = "Different count of times found in 'end_times'"
                     error_list.append(msg)
                 else:
+                    time_count = len(config.end_times[0])
                     for i, condition_links in enumerate(config.urls.end_url, start=1):
-                        if len(condition_links) != len_fst:
+                        if len(condition_links) != time_count:
                             msg = "Different count of links found at position " + str(i) \
-                                  + " in 'end_url', while lenght of 'end_times' are " + str(len_fst)
+                                  + " in 'end_url', while length of 'end_times' are " + str(time_count)
                             error_list.append(msg)
         elif config.urls.end_url_distribution == EndUrlDistribution.DAY:
             if config.useDayCalculation:
@@ -203,9 +211,7 @@ class ConfigValidator:
                     msg = "In distributionmode NONE only one url per condition is allowed"
                     error_list.append(msg)
         else:
-            it = iter(config.urls.end_url)
-            len_fst = len(next(it))
-            if not all(len(l) == len_fst for l in it):
+            if not ConfigValidator._all_inner_lengths_equal(config.urls.end_url):
                 msg = "In distributionmode RANDOM every condition should have the same number of links"
                 error_list.append(msg)
         return error_list
