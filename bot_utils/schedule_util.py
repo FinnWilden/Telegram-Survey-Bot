@@ -17,10 +17,13 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Telegram Survey Bot.  If not, see <http://www.gnu.org/licenses/>.
 """
+from __future__ import annotations
+
 import logging
+
 from datetime import datetime, time
-from random import randint
-from typing import Callable, List, Tuple
+from random import choice, randrange
+from collections.abc import Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -91,7 +94,7 @@ class ScheduleUtil:
 
     def schedule_end_survey_reminder(self,
                                      exec_function: Callable,
-                                     subscriber_information: List[Tuple[int, int, int]]) -> None:
+                                     subscriber_information: list[tuple[int, int, int]]) -> None:
         """
         Schedules the end survey reminder.
 
@@ -107,7 +110,7 @@ class ScheduleUtil:
                                args=[[chat_id for chat_id, _, _ in subscriber_information], date_str])
         self.db_handler.insert_end_reminder_entries_from_list(SurveyType.END, subscriber_information, date_str)
 
-    def add_jobs_from_list(self, datetime_list: List[datetime], exec_function: Callable, survey_type: SurveyType) \
+    def add_jobs_from_list(self, datetime_list: list[datetime], exec_function: Callable, survey_type: SurveyType) \
             -> None:
         """
         Add multiple jobs (one for every datetime in datetime_list) to the scheduler instance.
@@ -186,12 +189,12 @@ class ScheduleUtil:
         self.add_jobs_from_list(daily_date_times, exec_function, SurveyType.DAILY)
         self.add_jobs_from_list(end_date_times, exec_function, SurveyType.END)
 
-    def __calculate_date_list(self, survey_type: SurveyType) -> List[datetime]:
+    def __calculate_date_list(self, survey_type: SurveyType) -> list[datetime]:
         """
         Calculates a list of survey dates depending on the given config and survey_type.
 
         :param survey_type: The survey type
-        :return: List of dates (List[datetime])
+        :return: list of dates (list[datetime])
         """
         if not self.config.useDayCalculation:
             if survey_type == SurveyType.DAILY:
@@ -200,15 +203,23 @@ class ScheduleUtil:
                 return self.config.end_dates
         else:
             if survey_type == SurveyType.DAILY:
-                return TimeUtil.generate_date_list(self.config.dayCalculationSettings.daily_SurveyDays)
+                return TimeUtil.generate_date_list(
+                    self.config.dayCalculationSettings.daily_SurveyDays
+                )
             if survey_type == SurveyType.END:
-                return TimeUtil.generate_date_list(self.config.dayCalculationSettings.end_SurveyDays)
+                return TimeUtil.generate_date_list(
+                    self.config.dayCalculationSettings.end_SurveyDays
+                )
 
-    def __calculate_date_time_list(self,
-                                   dates: List[datetime],
-                                   wakeup_time: time,
-                                   survey_type: SurveyType,
-                                   offset: int) -> List[datetime]:
+        raise ValueError(f"Unsupported survey type for date calculation: {survey_type}")
+
+    def __calculate_date_time_list(
+        self,
+        dates: list[datetime],
+        wakeup_time: time | None,
+        survey_type: SurveyType,
+        offset: int,
+    ) -> list[datetime]:
         """
         Calculates the survey times and add them to the dates list.
 
@@ -216,47 +227,64 @@ class ScheduleUtil:
         :param wakeup_time: the wakeup time
         :param survey_type: the survey type
         :param offset: the time zone offset
-        :return: List of dates with time (List[datetime])
+        :return: list of dates with time (list[datetime])
         """
         if not self.config.useTimeCalculation:
             if survey_type == SurveyType.DAILY:
                 return TimeUtil.generate_date_time_list(dates, self.config.daily_times, offset)
             if survey_type == SurveyType.END:
                 return TimeUtil.generate_date_time_list(dates, self.config.end_times, offset)
+
         else:
+            if wakeup_time is None:
+                raise BotScheduleError("Wakeup time is required when useTimeCalculation is enabled.")
+
             if survey_type == SurveyType.DAILY:
-                time_settings = TimeSettings(wakeup_time,
-                                             self.config.timeCalculationSettings.daily_DelayMinutesAfterWakeup,
-                                             self.config.timeCalculationSettings.daily_SurveysPerDay,
-                                             self.config.timeCalculationSettings.daily_DelayMinutesBetweenSurveys)
-                return TimeUtil.generate_date_time_list(dates, time_settings,offset)
-            if survey_type == SurveyType.END:
-                time_settings = TimeSettings(wakeup_time,
-                                             self.config.timeCalculationSettings.end_DelayMinutesAfterWakeup,
-                                             self.config.timeCalculationSettings.end_SurveysPerDay,
-                                             self.config.timeCalculationSettings.end_DelayMinutesBetweenSurveys)
+                time_settings = TimeSettings(
+                    wakeup_time,
+                    self.config.timeCalculationSettings.daily_DelayMinutesAfterWakeup,
+                    self.config.timeCalculationSettings.daily_SurveysPerDay,
+                    self.config.timeCalculationSettings.daily_DelayMinutesBetweenSurveys,
+                )
                 return TimeUtil.generate_date_time_list(dates, time_settings, offset)
 
-    def calculate_end_distribution(self, end_list: List[datetime]) -> List[int]:
+            if survey_type == SurveyType.END:
+                time_settings = TimeSettings(
+                    wakeup_time,
+                    self.config.timeCalculationSettings.end_DelayMinutesAfterWakeup,
+                    self.config.timeCalculationSettings.end_SurveysPerDay,
+                    self.config.timeCalculationSettings.end_DelayMinutesBetweenSurveys,
+                )
+                return TimeUtil.generate_date_time_list(dates, time_settings, offset)
+
+        raise ValueError(f"Unsupported survey type for date-time calculation: {survey_type}")
+
+    def calculate_end_distribution(self, end_list: list[datetime]) -> list[int]:
         """
         Calculates the end distribution list, depending on the strategy in the config file.
 
-        :param end_list: List of end survey datetimes
-        :return: List with the end  (List[int])
+        :param end_list: list of end survey datetimes
+        :return: list with the end  (list[int])
         """
-        end_distribution_list: List[int] = []
-        last_day: int = end_list[0].day
+        if not end_list:
+            return []
+
+        end_distribution_list: list[int] = []
+        last_day = end_list[0].day
         count = 0
+
         if self.config.urls.end_url_distribution == EndUrlDistribution.NONE:
             return [0] * len(end_list)
-        elif self.config.urls.end_url_distribution == EndUrlDistribution.DAY:
+
+        if self.config.urls.end_url_distribution == EndUrlDistribution.DAY:
             for date in end_list:
                 if last_day != date.day:
                     count += 1
                     last_day = date.day
                 end_distribution_list.append(count)
             return end_distribution_list
-        elif self.config.urls.end_url_distribution == EndUrlDistribution.TIME:
+
+        if self.config.urls.end_url_distribution == EndUrlDistribution.TIME:
             for date in end_list:
                 if last_day != date.day:
                     count = 0
@@ -264,12 +292,17 @@ class ScheduleUtil:
                 end_distribution_list.append(count)
                 count += 1
             return end_distribution_list
-        elif self.config.urls.end_url_distribution == EndUrlDistribution.MIXED:
+
+        if self.config.urls.end_url_distribution == EndUrlDistribution.MIXED:
             return list(range(len(end_list)))
-        else:
-            for _ in end_list:
-                end_distribution_list.append(randint(0, len(self.config.urls.end_url[0]) - 1))
-            return end_distribution_list
+
+        if self.config.urls.end_url_distribution == EndUrlDistribution.RANDOM:
+            url_count = len(self.config.urls.end_url[0])
+            return [randrange(url_count) for _ in end_list]
+
+        raise ValueError(
+            f"Unsupported end URL distribution: {self.config.urls.end_url_distribution}"
+        )
 
     def assign_condition(self, chat_id: int) -> bool:
         """
@@ -278,13 +311,14 @@ class ScheduleUtil:
         :param chat_id: The chat id of the subscriber
         :return: None
         """
-        used_conditions = self.db_handler.get_used_conditions()
-        all_conditions = [x for x in range(0, len(self.config.urls.start_url))]
-        free_conditions = [x for x in all_conditions if x not in used_conditions]
-        if len(free_conditions) == 0:
+        used_conditions = set(self.db_handler.get_used_conditions())
+        all_conditions = range(len(self.config.urls.start_url))
+        free_conditions = [condition for condition in all_conditions if condition not in used_conditions]
+
+        if not free_conditions:
             return False
-        else:
-            condition = free_conditions[randint(0, len(free_conditions) - 1)]
-            self.db_handler.set_condition(chat_id, condition)
-            return True
+
+        condition = choice(free_conditions)
+        self.db_handler.set_condition(chat_id, condition)
+        return True
 

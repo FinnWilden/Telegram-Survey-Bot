@@ -27,7 +27,7 @@ SUBSCRIPTION_ASK = "Subscription ask {}: {}"
 SUBSCRIPTION_TIMEZONE = "Timezone"
 SUBSCRIPTION_TIME_CALC = "Wakeup time"
 SUBSCRIPTION_CONDITION = "Condition"
-SUBSCRIPTION_TIMEZONE_DELTA = "Got timezonedelta for {}: {}"
+SUBSCRIPTION_TIMEZONE_DELTA = "Got timezone delta for {}: {}"
 SUBSCRIPTION_WAKEUP_TIME = "Got wakeup time for {}: {}"
 SUBSCRIPTION_GOT_CONDITION = "Got condition for {}: {}"
 SUBSCRIPTION_FINISHED = "Send subscribe survey to {}"
@@ -37,16 +37,17 @@ SU_ADD_JOB = "Add job with id: {}"
 DB_UPDATE_CONDITION = "Update condition for {}: {}"
 DB_INSERT_SUBSCRIBER_ENTRY = "Insert subscriber entries:"
 DB_INSERT_SUBSCRIBER_ENTRY_DATA = "chat_id: {}, date_str: {}, survey_type: {}, condition: {}, end_distribution: {}"
-EMERGENCY_DATES_FOUND = "\n" \
-                        "--------------!!!!!!!     WARNING!     !!!!!!!--------------\n\n" \
-                        "Found {} future survey dates. Do you want to reschedule them?\n\n" \
-                        "--------------!!!!!!! PRESS [Y]es/[N]o !!!!!!!--------------"
-EMERGENCY_DATES_WARN = "\n" \
-                       "--------------!!!!!!!     WARNING!     !!!!!!!--------------\n\n" \
-                       "Should be the date entries be removed from the Database?\n" \
-                       "If not, all previous subscribed users\n" \
-                       "can not subscribe to the Bot anymore!\n\n" \
-                       "--------------!!!!!!! PRESS [Y]es/[N]o !!!!!!!--------------"
+EMERGENCY_DATES_FOUND = (
+    "\n"
+    "--------------!!!!!!!     WARNING!     !!!!!!!--------------\n\n"
+    "Found {} future survey dates. Do you want to reschedule them?"
+)
+EMERGENCY_DATES_WARN = (
+    "\n"
+    "--------------!!!!!!!     WARNING!     !!!!!!!--------------\n\n"
+    "Should the date entries be removed from the database?\n"
+    "If not, all previously subscribed users cannot subscribe to the bot again."
+)
 EMERGENCY_DATES_RESCHEDULE = "Reschedule {} survey dates:"
 EMERGENCY_DATES_IGNORE = "Ignore {} survey dates"
 EMERGENCY_DATES_IGNORE_DELETE = "Ignore and delete {} survey dates"

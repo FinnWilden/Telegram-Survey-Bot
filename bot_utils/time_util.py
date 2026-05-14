@@ -17,8 +17,9 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Telegram Survey Bot.  If not, see <http://www.gnu.org/licenses/>.
 """
-from datetime import datetime, timedelta, time as Time
-from typing import List, Union
+from __future__ import annotations
+
+from datetime import datetime, timedelta, time
 
 from bot_utils.bot_utils import TimeSettings
 
@@ -31,29 +32,26 @@ class TimeUtil:
     """
 
     @staticmethod
-    def get_time_from_str(time_str: str) -> Time:
+    def get_time_from_str(time_str: str) -> time:
         """
         Converts an string with the format "HH:MM" to a time instance
 
         :param time_str: The time string
         :return: The time instance
         """
-        number_strings: List[str] = time_str.split(":")
-        hour: int = int(number_strings[0])
-        minute: int = int(number_strings[1])
-        return Time(hour=hour, minute=minute)
+        return time.fromisoformat(time_str)
 
     @staticmethod
-    def get_date_time(date: datetime, time: Time) -> datetime:
+    def get_date_time(date: datetime, clock_time: time) -> datetime:
         """
         Combines a datetime and a time instance to one datetime instance.
         Therefore the time from the time instance and the year, month and day values from the date are used.
 
         :param date: The date
-        :param time: The time
+        :param time: The times
         :return: The combined datetime
         """
-        return datetime(date.year, date.month, date.day, time.hour, time.minute)
+        return datetime.combine(date.date(), clock_time)
 
     @staticmethod
     def apply_time_offset(date_time: datetime, offset: int) -> datetime:
@@ -64,11 +62,15 @@ class TimeUtil:
         :param offset: the time zone offset
         :return: the updated datetime
         """
-        date_time += timedelta(seconds=offset)
-        return date_time
+        return date_time + timedelta(seconds=offset)
 
     @staticmethod
-    def get_date_time_in(start_time: datetime = None, hours=0, minutes=0, seconds=0) -> datetime:
+    def get_date_time_in(
+        start_time: datetime | None = None,
+        hours: int = 0,
+        minutes: int = 0,
+        seconds: int = 0,
+    ) -> datetime:
         """
         Calculates the datetime in a specific future from a specific time-point.
 
@@ -80,48 +82,14 @@ class TimeUtil:
         """
         if start_time is None:
             start_time = datetime.now()
-        start_time += timedelta(hours=hours, minutes=minutes, seconds=seconds)
-        return start_time
+        return start_time + timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
     @staticmethod
-    def generate_date_list(day_list: List[int]) -> List[datetime]:
-        """
-        Generates a date list from a given integer list.
-
-        :param day_list: the integer list
-        :return: the datetime list
-        """
-        date_list: List[datetime] = []
-        today: datetime = datetime.now()
-        for day_delta in day_list:
-            date = today + timedelta(days=day_delta)
-            date_list.append(date)
-        return date_list
-
-    @staticmethod
-    def generate_time_list(day_count: int, time_settings: TimeSettings) -> List[List[Time]]:
-        """
-        Generates a list of time list depending on the day count and the time settings.
-
-        :param day_count: the day count
-        :param time_settings: the time settings
-        :return: the list of time lists
-        """
-        times_list: List[Time] = []
-        time_var: Time = time_settings.wakeup_time
-        for i in range(time_settings.survey_count):
-            if i == 0:
-                time_var += timedelta(minutes=time_settings.delay_minutes_after_wakeup)
-                times_list.append(time_var)
-            else:
-                time_var += timedelta(minutes=time_settings.delay_minutes_between_surveys)
-                times_list.append(time_var)
-        return [times_list] * day_count
-
-    @staticmethod
-    def generate_date_time_list(dates: List[datetime],
-                                times: Union[List[List[Time]], TimeSettings],
-                                offset: int = 0) -> List[datetime]:
+    def generate_date_time_list(
+        dates: list[datetime],
+        times: list[list[time]] | TimeSettings,
+        offset: int = 0,
+    ) -> list[datetime]:
         """
         Generates a list of datetime instances from a list of date-strings and a list of time-strings.
 
@@ -130,85 +98,63 @@ class TimeUtil:
         :param offset: the time offset
         :return: the list of datetime instances
         """
-        dt_list: List[datetime] = []
+
+        if isinstance(times, list) and len(times) != len(dates):
+            raise ValueError(
+                f"Expected {len(dates)} time lists, got {len(times)}."
+            )
+
+        date_times: list[datetime] = []
+
         for i, date in enumerate(dates):
+
             if isinstance(times, TimeSettings):
-                time_var: datetime = TimeUtil.get_date_time(date, times.wakeup_time)
-                for j in range(times.survey_count):
-                    if j == 0:
-                        time_var += timedelta(minutes=times.delay_minutes_after_wakeup)
-                        dt_list.append(time_var)
+
+                current_datetime = TimeUtil.get_date_time(date, times.wakeup_time)
+
+                for survey_index in range(times.survey_count):
+
+                    if survey_index == 0:
+                        current_datetime += timedelta(
+                            minutes=times.delay_minutes_after_wakeup
+                        )
                     else:
-                        time_var += timedelta(minutes=times.delay_minutes_between_surveys)
-                        dt_list.append(time_var)
+                        current_datetime += timedelta(
+                            minutes=times.delay_minutes_between_surveys
+                        )
+
+                    date_times.append(current_datetime)
+
             else:
-                for time in times[i]:
-                    date_time: datetime = TimeUtil.get_date_time(date, time)
-                    dt_list.append(date_time)
-        if offset != 0:
-            dt_list = list(map(lambda dt: TimeUtil.apply_time_offset(dt, offset), dt_list))
-        return dt_list
+                for survey_time in times[i]:
+                    date_times.append(
+                        TimeUtil.get_date_time(date, survey_time)
+                    )
+
+        if offset:
+            date_times = [
+                TimeUtil.apply_time_offset(dt, offset)
+                for dt in date_times
+            ]
+
+        return date_times
 
     @staticmethod
-    def generate_date_list_for_subscriber(day_list: List[datetime],
-                                          time_settings: TimeSettings) -> List[datetime]:
-        """
-        Generates a datetime list from a date list and the time settings.
-
-        :param day_list: The date list
-        :param time_settings: The time settings
-        :return: List with all datetimes
-        """
-        date_list: List[datetime] = []
-        for date in day_list:
-            date_list.extend(TimeUtil.add_dates(date, time_settings))
-        return date_list
-
-    @staticmethod
-    def generate_date_list_for_subscriber_day_calc(day_list: List[int],
-                                                   time_settings: Union[List[List[Time]], TimeSettings]) \
-            -> List[datetime]:
-        """
-        Generates a datetime list from a day list and a time list or a time settings instance.
-
-        :param day_list: The day list
-        :param time_settings: The time list or the time settings instance
-        :return: List with all datetimes
-        """
-        date_list: List[datetime] = []
-        today: datetime = datetime.now()
-        if isinstance(time_settings, TimeSettings):
-            for day_delta in day_list:
-                date = today + timedelta(days=day_delta)
-                date_list.extend(TimeUtil.add_dates(date, time_settings))
-        else:
-            for i, times in enumerate(time_settings):
-                date = today + timedelta(days=day_list[i])
-                for time_str in times:
-                    date_time = TimeUtil.get_date_time(date, time_str)
-                    date_list.append(date_time)
-
-        return date_list
-
-    @staticmethod
-    def add_dates(date: datetime, time_settings: TimeSettings) -> List[datetime]:
+    def add_dates(
+        date: datetime,
+        time_settings: TimeSettings,
+    ) -> list[datetime]:
         """
         Generates a datetime list from a specific date and timesettings.
 
         :param date: The date
         :param time_settings: The time settings.
-        :return: List of all datetimes
+        :return: list of all datetimes
         """
-        date_list: List[datetime] = []
-        date = TimeUtil.get_date_time(date, time_settings.wakeup_time)
-        for i in range(time_settings.survey_count):
-            if i == 0:
-                date += timedelta(minutes=time_settings.delay_minutes_after_wakeup)
-                date_list.append(date)
-            else:
-                date += timedelta(minutes=time_settings.delay_minutes_between_surveys)
-                date_list.append(date)
-        return date_list
+        return TimeUtil.generate_date_time_list(
+            [date],
+            time_settings,
+        )
 
     @staticmethod
     def get_time_offset(participant_datetime: datetime) -> int:
@@ -219,14 +165,12 @@ class TimeUtil:
         :return: the time zone offset (int)
         """
         datetime_now = datetime.now().replace(second=0, microsecond=0)
-        if datetime_now < participant_datetime:
-            timedelta_to_participant: timedelta = participant_datetime - datetime_now
-            timedelta_seconds = timedelta_to_participant.seconds
-        else:
-            timedelta_to_participant: timedelta = datetime_now - participant_datetime
-            timedelta_seconds = -timedelta_to_participant.seconds
 
-        if -FIVE_MINUTES_SECONDS <= timedelta_seconds <= FIVE_MINUTES_SECONDS:
+        delta_seconds = int(
+            (participant_datetime - datetime_now).total_seconds()
+        )
+
+        if -FIVE_MINUTES_SECONDS <= delta_seconds <= FIVE_MINUTES_SECONDS:
             return 0
-        else:
-            return timedelta_seconds
+
+        return delta_seconds
