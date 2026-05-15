@@ -17,89 +17,6 @@ from bot_utils.config import (
 )
 from bot_utils.schedule_util import BotScheduleError, ScheduleUtil
 
-
-def make_config(**overrides) -> Config:
-    data = {
-        "api_token": "dummy-token",
-        "subscription_start_date": "2026-05-15 08:00",
-        "subscription_deadline": "2026-05-20 20:00",
-        "daily_dates": ["2026-05-16"],
-        "daily_times": [["09:00", "12:00"]],
-        "end_dates": ["2026-05-18"],
-        "end_times": [["18:00"]],
-        "useTimeZoneCalculation": False,
-        "useDayCalculation": False,
-        "dayCalculationSettings": {
-            "daily_SurveyDays": [1],
-            "end_SurveyDays": [3],
-        },
-        "useTimeCalculation": False,
-        "timeCalculationSettings": {
-            "daily_DelayMinutesAfterWakeup": 30,
-            "daily_SurveysPerDay": 2,
-            "daily_DelayMinutesBetweenSurveys": 60,
-            "end_DelayMinutesAfterWakeup": 30,
-            "end_SurveysPerDay": 1,
-            "end_DelayMinutesBetweenSurveys": 60,
-        },
-        "linkDeletionSettings": {
-            "start_DeleteLinkAtSubscriptionDeadline": False,
-            "start_DeleteLinkTimer": False,
-            "start_DeleteDelayMinutes": 10,
-            "daily_DeleteLinkAtNewLink": False,
-            "daily_DeleteLinkTimer": False,
-            "daily_DeleteDelayMinutes": 10,
-            "end_DeleteLinkAtNewLink": False,
-            "end_DeleteLinkTimer": False,
-            "end_DeleteDelayMinutes": 10,
-        },
-        "randomTimeShiftSettings": {
-            "daily_RandomTimeShiftMinutes": 0,
-            "end_RandomTimeShiftMinutes": 0,
-        },
-        "endSurveyReminderEnabled": False,
-        "endSurveyReminderDelayHours": 1,
-        "participantsEnterCondition": False,
-        "uniqueConditions": False,
-        "urls": {
-            "start_url": ["https://example.com/start-a", "https://example.com/start-b"],
-            "daily_url": ["https://example.com/daily-a", "https://example.com/daily-b"],
-            "end_url": [
-                ["https://example.com/end-a-1", "https://example.com/end-a-2"],
-                ["https://example.com/end-b-1", "https://example.com/end-b-2"],
-            ],
-            "end_url_distribution": "NONE",
-        },
-        "surveyCommandEnabled": True,
-        "texts": {
-            "welcome": "Welcome",
-            "subscribe": "Subscribe",
-            "subscribe_early": "Too early",
-            "subscribe_late": "Too late",
-            "subscribe_already": "Already subscribed",
-            "subscribe_max_participants": "Full",
-            "subscribe_wakeup_time": "Wakeup time?",
-            "subscribe_condition": "Condition?",
-            "subscribe_timezone": "Timezone?",
-            "unsubscribe": "Unsubscribed",
-            "daily_reminder": "Daily reminder",
-            "end_reminder": "End reminder",
-            "survey_reply": "Survey reply",
-            "endSurveyReminder": "End survey reminder",
-            "endSurveyReminderYes": "Yes",
-            "endSurveyReminderNo": "No",
-        },
-        "help": {
-            "helpEnabled": True,
-            "help_text": "Help",
-            "surveyCommandHelp": "Survey help",
-        },
-    }
-
-    data.update(overrides)
-    return Config(**data)
-
-
 @pytest.fixture
 def scheduler():
     scheduler = BackgroundScheduler()
@@ -118,10 +35,10 @@ def db_handler():
 
 
 @pytest.fixture
-def schedule_util(scheduler, db_handler):
+def schedule_util(scheduler, db_handler, config_dict):
     return ScheduleUtil(
         scheduler=scheduler,
-        config=make_config(),
+        config=Config(**config_dict()),
         db_handler=db_handler,
     )
 
@@ -218,15 +135,15 @@ def test_add_new_subscriber_inserts_daily_and_end_entries_and_adds_jobs(schedule
     assert second_call[2] == SurveyType.END
     assert second_call[3] == 1
 
-    assert len(schedule_util.scheduler.get_jobs()) == 3
+    assert len(schedule_util.scheduler.get_jobs()) == 2
 
 
-def test_add_new_subscriber_uses_stored_condition_if_unique_conditions_enabled(scheduler, db_handler):
+def test_add_new_subscriber_uses_stored_condition_if_unique_conditions_enabled(scheduler, db_handler, config_dict):
     db_handler.get_used_condition.return_value = 7
 
     schedule_util = ScheduleUtil(
         scheduler=scheduler,
-        config=make_config(uniqueConditions=True),
+        config=Config(**config_dict(uniqueConditions=True)),
         db_handler=db_handler,
     )
 
@@ -240,10 +157,10 @@ def test_add_new_subscriber_uses_stored_condition_if_unique_conditions_enabled(s
     assert first_call[3] == 7
 
 
-def test_add_new_subscriber_requires_wakeup_time_when_time_calculation_enabled(scheduler, db_handler):
+def test_add_new_subscriber_requires_wakeup_time_when_time_calculation_enabled(scheduler, db_handler, config_dict):
     schedule_util = ScheduleUtil(
         scheduler=scheduler,
-        config=make_config(useTimeCalculation=True),
+        config=Config(**config_dict(useTimeCalculation=True)),
         db_handler=db_handler,
     )
 
@@ -256,14 +173,22 @@ def test_add_new_subscriber_requires_wakeup_time_when_time_calculation_enabled(s
         )
 
 
-def test_add_new_subscriber_with_time_calculation(scheduler, db_handler):
+def test_add_new_subscriber_with_time_calculation(scheduler, db_handler, config_dict):
     schedule_util = ScheduleUtil(
         scheduler=scheduler,
-        config=make_config(
+        config=Config(**config_dict(
             useTimeCalculation=True,
             daily_dates=["2026-05-16"],
             end_dates=["2026-05-18"],
-        ),
+            timeCalculationSettings={
+                "daily_DelayMinutesAfterWakeup": 30,
+                "daily_SurveysPerDay": 2,
+                "daily_DelayMinutesBetweenSurveys": 60,
+                "end_DelayMinutesAfterWakeup": 30,
+                "end_SurveysPerDay": 1,
+                "end_DelayMinutesBetweenSurveys": 60,
+            },
+        )),
         db_handler=db_handler,
     )
 
@@ -326,15 +251,15 @@ def test_add_new_subscriber_with_time_calculation(scheduler, db_handler):
         ),
     ],
 )
-def test_calculate_end_distribution(distribution, end_list, expected, scheduler, db_handler):
-    config = make_config(
+def test_calculate_end_distribution(distribution, end_list, expected, scheduler, db_handler, config_dict):
+    config = Config(**config_dict(
         urls={
             "start_url": ["https://example.com/start"],
             "daily_url": ["https://example.com/daily"],
             "end_url": [["https://example.com/end-1", "https://example.com/end-2"]],
             "end_url_distribution": distribution.name,
         },
-    )
+    ))
     schedule_util = ScheduleUtil(scheduler, config, db_handler)
 
     assert schedule_util.calculate_end_distribution(end_list) == expected
@@ -344,15 +269,15 @@ def test_calculate_end_distribution_empty_list(schedule_util):
     assert schedule_util.calculate_end_distribution([]) == []
 
 
-def test_calculate_end_distribution_random_returns_valid_indices(scheduler, db_handler):
-    config = make_config(
+def test_calculate_end_distribution_random_returns_valid_indices(scheduler, db_handler, config_dict):
+    config = Config(**config_dict(
         urls={
             "start_url": ["https://example.com/start"],
             "daily_url": ["https://example.com/daily"],
-            "end_url": [["url-0", "url-1", "url-2"]],
+            "end_url": [["https://example.com/end-1", "https://example.com/end-2"]],
             "end_url_distribution": "RANDOM",
         },
-    )
+    ))
     schedule_util = ScheduleUtil(scheduler, config, db_handler)
 
     result = schedule_util.calculate_end_distribution(

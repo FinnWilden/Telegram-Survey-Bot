@@ -6,113 +6,22 @@ import pytest
 from bot_utils.bot_enums import SurveyType
 from bot_utils.config_handler import ConfigHandler
 
-
-def make_config_dict(**overrides):
-    data = {
-        "api_token": "dummy-token",
-        "subscription_start_date": "2026-05-15 08:00",
-        "subscription_deadline": "2026-05-20 20:00",
-        "daily_dates": ["2026-05-16"],
-        "daily_times": [["09:00"]],
-        "end_dates": ["2026-05-18"],
-        "end_times": [["18:00"]],
-        "useTimeZoneCalculation": False,
-        "useDayCalculation": False,
-        "dayCalculationSettings": {
-            "daily_SurveyDays": [1],
-            "end_SurveyDays": [3],
-        },
-        "useTimeCalculation": False,
-        "timeCalculationSettings": {
-            "daily_DelayMinutesAfterWakeup": 30,
-            "daily_SurveysPerDay": 1,
-            "daily_DelayMinutesBetweenSurveys": 60,
-            "end_DelayMinutesAfterWakeup": 30,
-            "end_SurveysPerDay": 1,
-            "end_DelayMinutesBetweenSurveys": 60,
-        },
-        "linkDeletionSettings": {
-            "deleteSubscriptionSetupMessages": False,
-            "start_DeleteLinkAtSubscriptionDeadline": False,
-            "start_DeleteLinkTimer": False,
-            "start_DeleteDelayMinutes": 10,
-            "daily_DeleteLinkAtNewLink": False,
-            "daily_DeleteLinkTimer": False,
-            "daily_DeleteDelayMinutes": 10,
-            "end_DeleteLinkAtNewLink": False,
-            "end_DeleteLinkTimer": False,
-            "end_DeleteDelayMinutes": 10,
-        },
-        "randomTimeShiftSettings": {
-            "daily_RandomTimeShiftMinutes": 0,
-            "end_RandomTimeShiftMinutes": 0,
-        },
-        "endSurveyReminderEnabled": False,
-        "endSurveyReminderDelayHours": 1,
-        "participantsEnterCondition": False,
-        "uniqueConditions": False,
-        "urls": {
-            "start_url": [
-                "https://example.com/start-a",
-                "https://example.com/start-b",
-            ],
-            "daily_url": [
-                "https://example.com/daily-a",
-                "https://example.com/daily-b",
-            ],
-            "end_url": [
-                ["https://example.com/end-a"],
-                ["https://example.com/end-b"],
-            ],
-            "end_url_distribution": "NONE",
-        },
-        "surveyCommandEnabled": True,
-        "texts": {
-            "welcome": "Welcome",
-            "subscribe": "Subscribe",
-            "subscribe_early": "Too early",
-            "subscribe_late": "Too late",
-            "subscribe_already": "Already subscribed",
-            "subscribe_max_participants": "Full",
-            "subscribe_wakeup_time": "Wakeup time?",
-            "subscribe_condition": "Condition?",
-            "subscribe_timezone": "Timezone?",
-            "unsubscribe": "Unsubscribed",
-            "daily_reminder": "Daily reminder",
-            "end_reminder": "End reminder",
-            "survey_reply": "Survey reply",
-            "survey_not_subscribed": "You are not subscribed yet. Please send /subscribe first.",
-            "endSurveyReminder": "End survey reminder",
-            "endSurveyReminderYes": "Yes",
-            "endSurveyReminderNo": "No",
-        },
-        "help": {
-            "helpEnabled": True,
-            "help_text": "Help",
-            "surveyCommandHelp": "Survey help",
-        },
-    }
-
-    data.update(overrides)
-    return data
-
-
 @pytest.fixture
-def config_handler(tmp_path):
+def config_handler(tmp_path, config_dict):
     config_file = tmp_path / "config.json"
 
     config_file.write_text(
-        json.dumps(make_config_dict()),
+        json.dumps(config_dict()),
         encoding="utf-8",
     )
 
     return ConfigHandler(config_file=config_file)
 
 
-def test_invalid_config_raises(tmp_path):
+def test_invalid_config_raises(tmp_path, config_dict):
     config_file = tmp_path / "config.json"
 
-    invalid_config = make_config_dict(
+    invalid_config = config_dict(
         subscription_start_date="2026-05-21 08:00",
         subscription_deadline="2026-05-20 20:00",
     )
@@ -175,10 +84,10 @@ def test_get_message_raises_for_subscribe(config_handler):
         config_handler.get_message(SurveyType.SUBSCRIBE)
 
 
-def test_loads_yaml_config_file(tmp_path):
+def test_loads_yaml_config_file(tmp_path, config_dict):
     config_file = tmp_path / "config.yml"
     config_file.write_text(
-        yaml.safe_dump(make_config_dict(), sort_keys=False),
+        yaml.safe_dump(config_dict(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -189,13 +98,13 @@ def test_loads_yaml_config_file(tmp_path):
     assert handler.config.texts.welcome == "Welcome"
 
 
-def test_prefers_yml_over_yaml_and_json(tmp_path, monkeypatch):
+def test_prefers_yml_over_yaml_and_json(tmp_path, monkeypatch, config_dict):
     config_dir = tmp_path / "config"
     config_dir.mkdir()
 
-    json_config = make_config_dict(api_token="json-token")
-    yaml_config = make_config_dict(api_token="yaml-token")
-    yml_config = make_config_dict(api_token="yml-token")
+    json_config = config_dict(api_token="json-token")
+    yaml_config = config_dict(api_token="yaml-token")
+    yml_config = config_dict(api_token="yml-token")
 
     (config_dir / "config.json").write_text(
         json.dumps(json_config),
