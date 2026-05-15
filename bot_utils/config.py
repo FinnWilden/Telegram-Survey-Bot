@@ -43,6 +43,7 @@ class TimeCalculationSettings:
 
 @dataclass
 class LinkDeletionSettings:
+    deleteSubscriptionSetupMessages: bool
     start_DeleteLinkAtSubscriptionDeadline: bool
     start_DeleteLinkTimer: bool
     start_DeleteDelayMinutes: int

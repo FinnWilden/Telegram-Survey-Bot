@@ -22,7 +22,7 @@ CONFIG_FILES = [
 
 
 class ConfigHandler:
-    """s
+    """
     Class to parse and handle the config file.
     """
 

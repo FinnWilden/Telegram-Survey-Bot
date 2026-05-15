@@ -427,7 +427,10 @@ async def subscribe_wakeup_time(update: Update, context: ContextTypes.DEFAULT_TY
     """
     chat_id = update.effective_chat.id
 
-    if not config_handler.config.participantsEnterCondition:
+    if (
+    not config_handler.config.participantsEnterCondition
+    and config_handler.config.linkDeletionSettings.deleteSubscriptionSetupMessages
+    ):
         await delete_messages_async(db_handler.query_and_delete_message_ids, [chat_id], SurveyType.SUBSCRIBE)
 
     wakeup_time: time = TimeUtil.get_time_from_str(update.message.text)
@@ -457,7 +460,8 @@ async def subscribe_condition(update: Update, context: ContextTypes.DEFAULT_TYPE
     """
     chat_id = update.effective_chat.id
 
-    await delete_messages_async(db_handler.query_and_delete_message_ids, [chat_id], SurveyType.SUBSCRIBE)
+    if config_handler.config.linkDeletionSettings.deleteSubscriptionSetupMessages:
+        await delete_messages_async(db_handler.query_and_delete_message_ids, [chat_id], SurveyType.SUBSCRIBE)
 
     condition = int(update.message.text)
     logging.info(SUBSCRIPTION_GOT_CONDITION.format(chat_id, condition))
