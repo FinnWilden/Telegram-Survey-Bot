@@ -77,6 +77,7 @@
         "daily_reminder": "Hi there, it is time for a daily survey.",
         "end_reminder": "Hi, it is time for the end survey.",
         "survey_reply": "Here is your survey link.",
+        "survey_not_subscribed": "You are not subscribed yet. Please send /subscribe first.",
         "endSurveyReminder": "Hi, have you already participated the end survey?",
         "endSurveyReminderYes": "Yes",
         "endSurveyReminderNo": "No"
