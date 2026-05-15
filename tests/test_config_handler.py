@@ -1,8 +1,8 @@
 import json
+import yaml
 
 import pytest
 
-import bot_utils.config_handler as config_handler_module
 from bot_utils.bot_enums import SurveyType
 from bot_utils.config_handler import ConfigHandler
 
@@ -96,16 +96,32 @@ def make_config_dict(**overrides):
 
 
 @pytest.fixture
-def config_handler(tmp_path, monkeypatch):
+def config_handler(tmp_path):
     config_file = tmp_path / "config.json"
+
     config_file.write_text(
         json.dumps(make_config_dict()),
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(config_handler_module, "CONFIG_FILE", config_file)
+    return ConfigHandler(config_file=config_file)
 
-    return ConfigHandler()
+
+def test_invalid_config_raises(tmp_path):
+    config_file = tmp_path / "config.json"
+
+    invalid_config = make_config_dict(
+        subscription_start_date="2026-05-21 08:00",
+        subscription_deadline="2026-05-20 20:00",
+    )
+
+    config_file.write_text(
+        json.dumps(invalid_config),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(Exception):
+        ConfigHandler(config_file=config_file)
 
 
 def test_loads_config_file(config_handler):
@@ -157,20 +173,51 @@ def test_get_message_raises_for_subscribe(config_handler):
         config_handler.get_message(SurveyType.SUBSCRIBE)
 
 
-def test_invalid_config_raises(tmp_path, monkeypatch):
-    config_file = tmp_path / "config.json"
-
-    invalid_config = make_config_dict(
-        subscription_start_date="2026-05-21 08:00",
-        subscription_deadline="2026-05-20 20:00",
-    )
-
+def test_loads_yaml_config_file(tmp_path):
+    config_file = tmp_path / "config.yml"
     config_file.write_text(
-        json.dumps(invalid_config),
+        yaml.safe_dump(make_config_dict(), sort_keys=False),
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(config_handler_module, "CONFIG_FILE", config_file)
+    handler = ConfigHandler(config_file=config_file)
 
-    with pytest.raises(Exception):
-        ConfigHandler()
+    assert handler.config_file == config_file
+    assert handler.config.api_token == "dummy-token"
+    assert handler.config.texts.welcome == "Welcome"
+
+
+def test_prefers_yml_over_yaml_and_json(tmp_path, monkeypatch):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+
+    json_config = make_config_dict(api_token="json-token")
+    yaml_config = make_config_dict(api_token="yaml-token")
+    yml_config = make_config_dict(api_token="yml-token")
+
+    (config_dir / "config.json").write_text(
+        json.dumps(json_config),
+        encoding="utf-8",
+    )
+    (config_dir / "config.yaml").write_text(
+        yaml.safe_dump(yaml_config, sort_keys=False),
+        encoding="utf-8",
+    )
+    (config_dir / "config.yml").write_text(
+        yaml.safe_dump(yml_config, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "bot_utils.config_handler.CONFIG_FILES",
+        [
+            config_dir / "config.yml",
+            config_dir / "config.yaml",
+            config_dir / "config.json",
+        ],
+    )
+
+    handler = ConfigHandler()
+
+    assert handler.config_file == config_dir / "config.yml"
+    assert handler.config.api_token == "yml-token"
