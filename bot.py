@@ -756,7 +756,9 @@ def main() -> None:
 
     logging.info("Load Config...")
     try:
-        config_handler = ConfigHandler()
+        config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+        config_handler = ConfigHandler(config_file=config_path)
+
     except ConfigValidationException as err:
         for message in err.message_list:
             logging.error(message)
