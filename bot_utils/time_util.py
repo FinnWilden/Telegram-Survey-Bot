@@ -48,7 +48,7 @@ class TimeUtil:
         Therefore the time from the time instance and the year, month and day values from the date are used.
 
         :param date: The date
-        :param time: The times
+        :param clock_time: The time
         :return: The combined datetime
         """
         return datetime.combine(date.date(), clock_time)
