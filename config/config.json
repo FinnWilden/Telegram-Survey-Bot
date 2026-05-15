@@ -32,6 +32,7 @@
         "end_DelayMinutesBetweenSurveys": 90
     },
     "linkDeletionSettings": {
+        "deleteSubscriptionSetupMessages": false,
         "start_DeleteLinkAtSubscriptionDeadline": true,
         "start_DeleteLinkTimer": false,
         "start_DeleteDelayMinutes": 240,
