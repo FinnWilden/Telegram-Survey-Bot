@@ -1,4 +1,2 @@
-python-telegram-bot~=12.8
-APScheduler~=3.7.0
-readchar~=3.0.4
-future~=0.17.1
+python-telegram-bot==22.7
+APScheduler==3.11.2

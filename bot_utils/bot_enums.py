@@ -28,7 +28,6 @@ class SurveyType(Enum):
     DAILY = 2
     END = 3
 
-
 class EndUrlDistribution(Enum):
     """
     Enum for the different end distribution strategies.
@@ -38,4 +37,3 @@ class EndUrlDistribution(Enum):
     TIME = 2
     MIXED = 3
     RANDOM = 4
-

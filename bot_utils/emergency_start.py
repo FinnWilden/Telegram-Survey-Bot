@@ -21,27 +21,21 @@ import logging
 from datetime import datetime
 from typing import List, Tuple, Callable
 
-from readchar import readchar
-
 from bot_utils.bot_enums import SurveyType
 from bot_utils.bot_utils import destruct_tuple
 from bot_utils.db_handler import DbHandler
 from bot_utils.logging_strings import *
 from bot_utils.schedule_util import ScheduleUtil
 
-KEY_Y = b"y"
-KEY_N = b"n"
-
-
 class EmergencyStart:
     """
     Class for the Emergency-Start.
     """
-    scheduler: ScheduleUtil
+    schedule_util: ScheduleUtil
     db_handler: DbHandler
     logger: logging
 
-    def __init__(self, scheduler: ScheduleUtil, db_handler: DbHandler, exec_function: Callable) -> None:
+    def __init__(self, schedule_util: ScheduleUtil, db_handler: DbHandler, exec_function: Callable) -> None:
         """
         Constructor.\n
         After initializing all fields, this constructor will automatically run the check, if an emergency-start
@@ -51,7 +45,7 @@ class EmergencyStart:
         :param db_handler: the database handler instance
         :param exec_function: the send notification broadcast function of the bot main file
         """
-        self.schedule_util = scheduler
+        self.schedule_util = schedule_util
         self.db_handler = db_handler
         self.logger = logging.getLogger(__name__)
         self.progress(exec_function)
@@ -84,33 +78,37 @@ class EmergencyStart:
         datetime_now = datetime.now()
         return list(filter(destruct_tuple(lambda dt, _: datetime_now < dt), tuple_list))
 
+    def ask_yes_no(self, message: str) -> bool:
+        """
+        Ask a yes/no question in the command line.
+        """
+        while True:
+            self.logger.warning(message)
+            answer = input("[y/n]: ").strip().lower()
+
+            if answer in ("y", "yes"):
+                return True
+
+            if answer in ("n", "no"):
+                return False
+
+            self.logger.warning("Please enter 'y' or 'n'.")
+
+
     def ask_for_emergency_start(self, count_future_dates: int) -> bool:
         """
-        Prompts a message to the command line, which asks the user if he wants to reschedule the future survey dates.
-
-        :param count_future_dates: Count of the future dates
-        :return: if the user has pressed yes or no (bool)
+        Ask whether future survey dates should be rescheduled.
         """
-        self.logger.warning(EMERGENCY_DATES_FOUND.format(count_future_dates))
-        input_char = readchar()
-        if input_char == KEY_Y or input_char == KEY_N:
-            return input_char == KEY_Y
-        else:
-            return self.ask_for_emergency_start(count_future_dates)
+        return self.ask_yes_no(
+            EMERGENCY_DATES_FOUND.format(count_future_dates)
+        )
+
 
     def ask_for_database_cleanup(self) -> bool:
         """
-        Prompts a message to the command line, which asks the user if he wants to to clean all current entries in the
-        database.
-
-        :return: if the user has pressed yes or no (bool)
+        Ask whether all current database entries should be deleted.
         """
-        self.logger.warning(EMERGENCY_DATES_WARN)
-        input_char = readchar()
-        if input_char == KEY_Y or input_char == KEY_N:
-            return input_char == KEY_Y
-        else:
-            return self.ask_for_database_cleanup()
+        return self.ask_yes_no(EMERGENCY_DATES_WARN)
 
     def restore_scheduler_entries(self,
                                   future_dates: List[Tuple[datetime, SurveyType]],

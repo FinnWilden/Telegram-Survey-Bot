@@ -26,7 +26,7 @@ For a detailed description concerning the configuration and execution of the scr
 - Timezone
 - Emergency start
 - log files
-- Code optimation
+- Code optimization
 - bug fixes
 
 
