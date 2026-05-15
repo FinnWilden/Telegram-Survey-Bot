@@ -560,10 +560,24 @@ async def send_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handles /survey.
+    Sends the survey_reply message from the config file and the daily survey link to the user.
     """
     chat_id = update.effective_chat.id
-    condition = db_handler.get_condition(chat_id)
-    markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.DAILY, condition)
+
+    try:
+        condition = db_handler.get_condition(chat_id)
+    except LookupError:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=config_handler.config.texts.survey_not_subscribed,
+        )
+        return
+
+    markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(
+        config_handler,
+        SurveyType.DAILY,
+        condition,
+    )
 
     logging.info(SEND_SURVEY.format(SurveyType.DAILY.name, chat_id))
 
@@ -572,6 +586,7 @@ async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         text=config_handler.config.texts.survey_reply,
         reply_markup=markup,
     )
+
     db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.DAILY)
 
     if config_handler.config.linkDeletionSettings.daily_DeleteLinkTimer:

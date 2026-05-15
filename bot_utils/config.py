@@ -90,6 +90,7 @@ class Texts:
     daily_reminder: str
     end_reminder: str
     survey_reply: str
+    survey_not_subscribed: str
     endSurveyReminder: str
     endSurveyReminderYes: str
     endSurveyReminderNo: str
