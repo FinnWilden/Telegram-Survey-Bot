@@ -32,6 +32,7 @@ def make_config_dict(**overrides):
             "end_DelayMinutesBetweenSurveys": 60,
         },
         "linkDeletionSettings": {
+            "deleteSubscriptionSetupMessages": False,
             "start_DeleteLinkAtSubscriptionDeadline": False,
             "start_DeleteLinkTimer": False,
             "start_DeleteDelayMinutes": 10,
@@ -80,6 +81,7 @@ def make_config_dict(**overrides):
             "daily_reminder": "Daily reminder",
             "end_reminder": "End reminder",
             "survey_reply": "Survey reply",
+            "survey_not_subscribed": "You are not subscribed yet. Please send /subscribe first.",
             "endSurveyReminder": "End survey reminder",
             "endSurveyReminderYes": "Yes",
             "endSurveyReminderNo": "No",
