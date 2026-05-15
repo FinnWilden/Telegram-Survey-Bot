@@ -52,6 +52,22 @@ class TimeUtil:
         :return: The combined datetime
         """
         return datetime.combine(date.date(), clock_time)
+    
+    @staticmethod
+    def generate_date_list(day_list: list[int]) -> list[datetime]:
+        """
+        Generates a date list from a list of day offsets.
+
+        Example:
+        day_list = [0, 1, 2]
+        means today, tomorrow, and the day after tomorrow.
+        """
+        today = datetime.now()
+
+        return [
+            today + timedelta(days=day_delta)
+            for day_delta in day_list
+        ]
 
     @staticmethod
     def apply_time_offset(date_time: datetime, offset: int) -> datetime:
