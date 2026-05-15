@@ -17,12 +17,13 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Telegram Survey Bot. If not, see <http://www.gnu.org/licenses/>.
 """
+from __future__ import annotations
 
-import asyncio
-import logging
+import asyncio, logging, sys
 from asyncio import AbstractEventLoop
 from datetime import datetime, time
-from typing import Awaitable, Callable, Dict, List, Optional, Tuple
+from pathlib import Path
+from collections.abc import Awaitable, Callable
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.base import JobLookupError
@@ -75,7 +76,7 @@ schedule_util: ScheduleUtil
 scheduler: BackgroundScheduler
 db_handler: DbHandler
 application: Application
-application_loop: Optional[AbstractEventLoop] = None
+application_loop: AbstractEventLoop | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -124,7 +125,7 @@ def init_handlers(app: Application) -> None:
         or config_handler.config.participantsEnterCondition
         or config_handler.config.useTimeZoneCalculation
     ):
-        states: Dict[int, List[BaseHandler]] = {}
+        states: dict[int, list[BaseHandler]] = {}
 
         if config_handler.config.useTimeZoneCalculation:
             regex_str = r"^\d{4}\.(0?[1-9]|1[012])\.(0?[1-9]|[12][0-9]|3[01])\-(0\d|1\d|2\d|\d):[0-5]\d$"
@@ -230,7 +231,7 @@ def send_notification_broadcast(survey_type: SurveyType, job_id: str, date_str: 
     submit_async(send_notification_broadcast_async(survey_type, job_id, date_str))
 
 
-def send_end_survey_reminder(chat_id_list: List[int], date_str: str) -> None:
+def send_end_survey_reminder(chat_id_list: list[int], date_str: str) -> None:
     """
     Synchronous wrapper used by APScheduler.
     """
@@ -625,7 +626,7 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
     """
     remove_job_from_scheduler(job_id)
 
-    subscriber_information: List[Tuple[int, int, int]] = db_handler.query_subscribers_by_date_type(
+    subscriber_information: list[tuple[int, int, int]] = db_handler.query_subscribers_by_date_type(
         date_str,
         survey_type.name,
     )
@@ -693,7 +694,7 @@ def remove_job_from_scheduler(job_id: str) -> None:
         logging.info("Job with id " + job_id + " not rescheduled")
 
 
-async def send_end_survey_reminder_async(chat_id_list: List[int], date_str: str) -> None:
+async def send_end_survey_reminder_async(chat_id_list: list[int], date_str: str) -> None:
     """
     Sends the end-survey-reminder to users.
     """
@@ -724,7 +725,7 @@ async def delete_messages_async(query_function: Callable, *func_args) -> None:
     """
     Deletes multiple link messages.
     """
-    id_list: List[tuple] = query_function(*func_args)
+    id_list: list[tuple] = query_function(*func_args)
 
     for chat_id, message_id in id_list:
         await delete_message_async(chat_id, message_id)
@@ -760,6 +761,7 @@ def main() -> None:
         for message in err.message_list:
             logging.error(message)
         raise SystemExit(-1)
+
     except (ValueError, TypeError, KeyError) as err:
         logging.error("%s: %s", type(err).__name__, err)
         raise SystemExit(-1)
