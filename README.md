@@ -1,56 +1,159 @@
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/871707ae18964ddf9ac22b6d90e2dc9a)](https://www.codacy.com?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=Raze97/Telegram-Survey-Bot&amp;utm_campaign=Badge_Grade)
-[![Actions Status](https://github.com/Raze97/Telegram-Survey-Bot/workflows/Python-build/badge.svg)](https://github.com/Raze97/Telegram-Survey-Bot/actions)
+# Telegram Survey Bot
+
+[![Tests](https://github.com/FinnWilden/Telegram-Survey-Bot/actions/workflows/tests.yml/badge.svg)](https://github.com/FinnWilden/Telegram-Survey-Bot/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![GitHub release](https://img.shields.io/github/v/release/Raze97/Telegram-Survey-Bot)](https://GitHub.com/Raze97/Telegram-Survey-Bot/releases)
-[![Github all releases](https://img.shields.io/github/downloads/Raze97/Telegram-Survey-Bot/total)](https://GitHub.com/Raze97/Telegram-Survey-Bot/releases/)
-[![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
+[![Made with Python](https://img.shields.io/badge/Made%20with-Python-blue.svg)](https://www.python.org/)
 
 ![Logo](https://github.com/Raze97/Telegram-Survey-Bot-Logos/blob/master/logo/logo_text.png?raw=true)
 
-A [Telegram](https://telegram.org/) bot to conduct your ambulatory assessment study by sending surveys to participants' smartphones.
+A configurable [Telegram](https://telegram.org/) bot for conducting ambulatory assessment, experience sampling (ESM), diary, and longitudinal survey studies via smartphones.
 
-The bot script is written in Python, can be simply configured by a single JSON-file and runs under Windows, MacOS and Linux.
+The bot automatically distributes survey links to participants using predefined schedules, individualized wake-up based timing, randomized prompts, and condition assignment. It is designed to provide a lightweight and easy-to-deploy solution for researchers without requiring dedicated server infrastructure or app development.
 
-## Features
+The project is written in Python and supports Windows, Linux, and macOS.
 
--   Use fix dates and times for your surveys or use day calculation depending on the subscribe-day and time calculation depending on the wakeup time of your participants.
--   Three types of links are available: start-, daily- and endlinks
--   Decide how long your survey links are visible in the telegram chat
--   Assign different conditions to your participants
--   Randomize your survey times
+---
 
-For a detailed description concerning the configuration and execution of the script, take a look at our [wiki](https://github.com/Raze97/Telegram-Survey-Bot/wiki).
+# Features
 
-## Update 2.0 out now
+* Fixed survey schedules using predefined dates and times
+* Relative scheduling based on participant wake-up times
+* Day-based scheduling relative to subscription date
+* Randomized survey time shifts
+* Multiple survey types:
 
-- Timezone
-- Emergency start
-- log files
-- Code optimization
-- bug fixes
+  * Start surveys
+  * Daily surveys
+  * End surveys
+* Flexible end survey link distribution strategies
+* Participant condition assignment and randomization
+* Optional timezone support
+* Automatic survey reminder scheduling
+* Automatic deletion of expired survey links
+* SQLite-based lightweight persistence
+* Logging and emergency restart handling
+* Fully configurable through a single JSON configuration file
 
+---
 
-## Used Libraries
+# Documentation
 
--   [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)  
--   [apscheduler](https://github.com/agronholm/apscheduler)  
+The technical repository overview is provided in this README.
 
-## License
-Copyright: (c) 2020, Michael Barthelmäs, Marcel Killinger, Johannes Keller. GNU General Public License v3.0 (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+Detailed setup instructions, configuration examples, and user guides are available in the Wiki:
 
-Telegram Survey Bot is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+➡ **Wiki:**
+https://github.com/FinnWilden/Telegram-Survey-Bot/wiki
 
-Telegram Survey Bot is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU General Public License for more details.
+The Wiki includes:
 
-## Citation
-If you use our script, please cite it using the following information:
+* Installation instructions
+* Bot setup with Telegram BotFather
+* Configuration explanations
+* Running studies
 
-Barthelmäs, M., Killinger, M., & Keller, J. (2020). <i>Telegram-Survey-Bot (Version 1.0) [Computer software]</i>. Retrieved from https://github.com/Raze97/Telegram-Survey-Bot
+---
 
-> Developed by Marcel Killinger and Michael Barthelmäs,  supervised by Johannes Keller from [Dept. Social Psychology Ulm University](https://www.uni-ulm.de/en/in/psy-soz/)
+# Project Status
+
+Recent improvements include:
+
+* Python modernization and refactoring
+* Type hint updates
+* Improved SQLite handling
+* Automated unit testing
+* GitHub Actions continuous integration
+* Improved scheduling reliability
+* Code cleanup and restructuring
+* Expanded documentation
+
+---
+
+# Automated Testing & Continuous Integration
+
+The project uses automated unit tests and GitHub Actions based continuous integration (CI).
+
+Tests are automatically executed on every push and pull request using multiple Python versions.
+
+The current test suite includes:
+
+* Time and scheduling utilities
+* Database handling
+* Configuration parsing and validation
+* Scheduling logic
+* Telegram bot handlers using mocks
+* Keyboard generation
+
+This helps detect regressions early and improves long-term maintainability and reliability.
+
+---
+
+# Installation
+
+See the Wiki for installation instructions:
+
+➡ https://github.com/FinnWilden/Telegram-Survey-Bot/wiki
+
+---
+
+# Contributing
+
+Bug reports, ideas, feature requests, and pull requests are very welcome.
+
+If you encounter problems or have suggestions for improvements, please open an issue:
+
+➡ https://github.com/FinnWilden/Telegram-Survey-Bot/issues
+
+Contributions are especially welcome regarding:
+
+* Additional scheduling strategies
+* Improved Telegram interaction flows
+* Better timezone handling
+* UI/UX improvements
+* Documentation
+* Testing
+* Refactoring and modernization
+
+---
+
+# Technologies Used
+
+* [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)
+* [APScheduler](https://github.com/agronholm/apscheduler)
+* SQLite
+* pytest
+* GitHub Actions
+
+---
+
+# License
+
+Copyright (c) 2020
+Michael Barthelmäs, Marcel Killinger, Johannes Keller
+
+Licensed under the GNU General Public License v3.0.
+
+See:
+
+* LICENSE
+* https://www.gnu.org/licenses/gpl-3.0.txt
+
+---
+
+# Citation
+
+If you use this software in scientific work, please cite:
+
+```text
+Barthelmäs, M., Killinger, M., & Keller, J. (2020).
+Telegram-Survey-Bot (Version 1.0) [Computer software].
+https://github.com/Raze97/Telegram-Survey-Bot
+```
+
+---
+
+# Acknowledgements
+
+Originally developed by Marcel Killinger and Michael Barthelmäs under supervision of Johannes Keller at the Department of Social Psychology, Ulm University.
+
+The project is currently being further modernized and extended by Finn Wilden.
