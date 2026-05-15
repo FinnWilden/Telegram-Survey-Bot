@@ -121,6 +121,12 @@ def test_add_dates():
         datetime(2026, 5, 15, 8, 0),
     ]
 
+def test_generate_date_list():
+    result = TimeUtil.generate_date_list([0, 1, 2])
+
+    assert len(result) == 3
+    assert result[1].date() == (result[0] + timedelta(days=1)).date()
+    assert result[2].date() == (result[0] + timedelta(days=2)).date()
 
 def test_get_time_offset_returns_zero_for_same_time():
     participant_datetime = datetime.now().replace(second=0, microsecond=0)

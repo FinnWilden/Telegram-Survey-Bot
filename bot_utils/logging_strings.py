@@ -39,12 +39,12 @@ DB_INSERT_SUBSCRIBER_ENTRY = "Insert subscriber entries:"
 DB_INSERT_SUBSCRIBER_ENTRY_DATA = "chat_id: {}, date_str: {}, survey_type: {}, condition: {}, end_distribution: {}"
 EMERGENCY_DATES_FOUND = (
     "\n"
-    "--------------!!!!!!!     WARNING!     !!!!!!!--------------\n\n"
+    "--------------!!!!!!!     WARNING      !!!!!!!--------------\n\n"
     "Found {} future survey dates. Do you want to reschedule them?"
 )
 EMERGENCY_DATES_WARN = (
     "\n"
-    "--------------!!!!!!!     WARNING!     !!!!!!!--------------\n\n"
+    "--------------!!!!!!!     WARNING      !!!!!!!--------------\n\n"
     "Should the date entries be removed from the database?\n"
     "If not, all previously subscribed users cannot subscribe to the bot again."
 )

@@ -71,10 +71,14 @@ def mock_config_handler():
     )
 
     config.linkDeletionSettings = SimpleNamespace(
+        deleteSubscriptionSetupMessages=False,
+
         start_DeleteLinkTimer=False,
         start_DeleteDelayMinutes=1,
+
         daily_DeleteLinkTimer=False,
         daily_DeleteDelayMinutes=1,
+
         end_DeleteLinkAtNewLink=False,
         end_DeleteLinkTimer=False,
         end_DeleteDelayMinutes=1,

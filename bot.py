@@ -17,12 +17,13 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Telegram Survey Bot. If not, see <http://www.gnu.org/licenses/>.
 """
+from __future__ import annotations
 
-import asyncio
-import logging
+import asyncio, logging, sys
 from asyncio import AbstractEventLoop
 from datetime import datetime, time
-from typing import Awaitable, Callable, Dict, List, Optional, Tuple
+from pathlib import Path
+from collections.abc import Awaitable, Callable
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.base import JobLookupError
@@ -75,7 +76,7 @@ schedule_util: ScheduleUtil
 scheduler: BackgroundScheduler
 db_handler: DbHandler
 application: Application
-application_loop: Optional[AbstractEventLoop] = None
+application_loop: AbstractEventLoop | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -124,7 +125,7 @@ def init_handlers(app: Application) -> None:
         or config_handler.config.participantsEnterCondition
         or config_handler.config.useTimeZoneCalculation
     ):
-        states: Dict[int, List[BaseHandler]] = {}
+        states: dict[int, list[BaseHandler]] = {}
 
         if config_handler.config.useTimeZoneCalculation:
             regex_str = r"^\d{4}\.(0?[1-9]|1[012])\.(0?[1-9]|[12][0-9]|3[01])\-(0\d|1\d|2\d|\d):[0-5]\d$"
@@ -230,7 +231,7 @@ def send_notification_broadcast(survey_type: SurveyType, job_id: str, date_str: 
     submit_async(send_notification_broadcast_async(survey_type, job_id, date_str))
 
 
-def send_end_survey_reminder(chat_id_list: List[int], date_str: str) -> None:
+def send_end_survey_reminder(chat_id_list: list[int], date_str: str) -> None:
     """
     Synchronous wrapper used by APScheduler.
     """
@@ -426,7 +427,10 @@ async def subscribe_wakeup_time(update: Update, context: ContextTypes.DEFAULT_TY
     """
     chat_id = update.effective_chat.id
 
-    if not config_handler.config.participantsEnterCondition:
+    if (
+    not config_handler.config.participantsEnterCondition
+    and config_handler.config.linkDeletionSettings.deleteSubscriptionSetupMessages
+    ):
         await delete_messages_async(db_handler.query_and_delete_message_ids, [chat_id], SurveyType.SUBSCRIBE)
 
     wakeup_time: time = TimeUtil.get_time_from_str(update.message.text)
@@ -456,7 +460,8 @@ async def subscribe_condition(update: Update, context: ContextTypes.DEFAULT_TYPE
     """
     chat_id = update.effective_chat.id
 
-    await delete_messages_async(db_handler.query_and_delete_message_ids, [chat_id], SurveyType.SUBSCRIBE)
+    if config_handler.config.linkDeletionSettings.deleteSubscriptionSetupMessages:
+        await delete_messages_async(db_handler.query_and_delete_message_ids, [chat_id], SurveyType.SUBSCRIBE)
 
     condition = int(update.message.text)
     logging.info(SUBSCRIPTION_GOT_CONDITION.format(chat_id, condition))
@@ -555,10 +560,24 @@ async def send_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handles /survey.
+    Sends the survey_reply message from the config file and the daily survey link to the user.
     """
     chat_id = update.effective_chat.id
-    condition = db_handler.get_condition(chat_id)
-    markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.DAILY, condition)
+
+    try:
+        condition = db_handler.get_condition(chat_id)
+    except LookupError:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=config_handler.config.texts.survey_not_subscribed,
+        )
+        return
+
+    markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(
+        config_handler,
+        SurveyType.DAILY,
+        condition,
+    )
 
     logging.info(SEND_SURVEY.format(SurveyType.DAILY.name, chat_id))
 
@@ -567,6 +586,7 @@ async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         text=config_handler.config.texts.survey_reply,
         reply_markup=markup,
     )
+
     db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.DAILY)
 
     if config_handler.config.linkDeletionSettings.daily_DeleteLinkTimer:
@@ -625,7 +645,7 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
     """
     remove_job_from_scheduler(job_id)
 
-    subscriber_information: List[Tuple[int, int, int]] = db_handler.query_subscribers_by_date_type(
+    subscriber_information: list[tuple[int, int, int]] = db_handler.query_subscribers_by_date_type(
         date_str,
         survey_type.name,
     )
@@ -693,7 +713,7 @@ def remove_job_from_scheduler(job_id: str) -> None:
         logging.info("Job with id " + job_id + " not rescheduled")
 
 
-async def send_end_survey_reminder_async(chat_id_list: List[int], date_str: str) -> None:
+async def send_end_survey_reminder_async(chat_id_list: list[int], date_str: str) -> None:
     """
     Sends the end-survey-reminder to users.
     """
@@ -724,7 +744,7 @@ async def delete_messages_async(query_function: Callable, *func_args) -> None:
     """
     Deletes multiple link messages.
     """
-    id_list: List[tuple] = query_function(*func_args)
+    id_list: list[tuple] = query_function(*func_args)
 
     for chat_id, message_id in id_list:
         await delete_message_async(chat_id, message_id)
@@ -755,11 +775,14 @@ def main() -> None:
 
     logging.info("Load Config...")
     try:
-        config_handler = ConfigHandler()
+        config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+        config_handler = ConfigHandler(config_file=config_path)
+
     except ConfigValidationException as err:
         for message in err.message_list:
             logging.error(message)
         raise SystemExit(-1)
+
     except (ValueError, TypeError, KeyError) as err:
         logging.error("%s: %s", type(err).__name__, err)
         raise SystemExit(-1)
