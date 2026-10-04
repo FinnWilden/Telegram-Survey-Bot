@@ -73,7 +73,7 @@ Recent improvements include:
 
 The project uses automated unit tests and GitHub Actions based continuous integration (CI).
 
-Tests are automatically executed on every push and pull request using multiple Python versions.
+Tests are automatically executed on every push and pull request using Python 3.10 through 3.14.
 
 The current test suite includes:
 
@@ -93,6 +93,12 @@ This helps detect regressions early and improves long-term maintainability and r
 See the Wiki for installation instructions:
 
 ➡ https://github.com/FinnWilden/Telegram-Survey-Bot/wiki
+
+---
+
+# Precompiled releases
+
+Maintainer instructions for preparing and publishing precompiled builds are in [docs/precompiled-releases.md](docs/precompiled-releases.md).
 
 ---
 

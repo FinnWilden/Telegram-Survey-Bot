@@ -5,3 +5,6 @@ log/
 db/
 .pytest_cache/
 .vscode/
+build/
+dist/
+/Survey-Bot.spec

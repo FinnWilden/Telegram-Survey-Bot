@@ -1,0 +1,76 @@
+name: Build precompiled packages
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest pytest-asyncio
+
+      - name: Run tests
+        run: python -m pytest
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-22.04
+            platform: linux
+          - os: macos-latest
+            platform: macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install application and build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Build executable
+        run: python -m PyInstaller --noconfirm --clean --onedir --name Survey-Bot bot.py
+
+      - name: Assemble platform archive
+        run: >-
+          python .github/scripts/package_precompiled.py
+          --platform "${{ matrix.platform }}"
+          --architecture "${{ runner.arch }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Telegram-Survey-Bot-${{ matrix.platform }}-${{ runner.arch }}
+          path: dist/Telegram-Survey-Bot-${{ matrix.platform }}-*.zip
+          if-no-files-found: error
+          retention-days: 30
