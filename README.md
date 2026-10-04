@@ -96,6 +96,12 @@ See the Wiki for installation instructions:
 
 ---
 
+# Precompiled releases
+
+Maintainer instructions for preparing and publishing precompiled builds are in [docs/precompiled-releases.md](docs/precompiled-releases.md).
+
+---
+
 # Contributing
 
 Bug reports, ideas, feature requests, and pull requests are very welcome.
