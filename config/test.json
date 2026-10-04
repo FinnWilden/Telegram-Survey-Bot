@@ -1,5 +1,5 @@
 {
-    "api_token": "8732704140:AAFDmD5gOvgCO5P7YvuxBzzj6z2xH-yJ6Dc",
+    "api_token": "your_api_token_here",
     "surveyCommandEnabled": true,
     "participantsEnterCondition": false,
     "uniqueConditions": true,

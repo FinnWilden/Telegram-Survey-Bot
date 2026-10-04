@@ -1,4 +1,4 @@
-api_token: "8732704140:AAFDmD5gOvgCO5P7YvuxBzzj6z2xH-yJ6Dc"
+api_token: "YOUR_TELEGRAM_BOT_TOKEN"
 
 surveyCommandEnabled: true
 participantsEnterCondition: false
