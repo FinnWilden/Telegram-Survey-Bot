@@ -1,0 +1,9 @@
+- ensure participant is not a telegram bot account
+- option, that the bot is also in windows standy by active? Or that standyb doesnt happen if the bot runs?
+
+Mayu ToDo:
+- Kommentare im .yaml file schreiben, was jedes Setting macht, außerdem Settings gruppieren -> hilft um dann eine GUI zu schreiben, die das .yaml erstellt
+- sinnvolle test.yaml (s) bereitstellen. Bsp. von verschiedenene Umfrage Typen/Ansätzen/...
+
+Fragen:
+- Warum /subscribe und dann /survey?

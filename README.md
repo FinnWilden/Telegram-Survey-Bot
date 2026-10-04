@@ -73,7 +73,7 @@ Recent improvements include:
 
 The project uses automated unit tests and GitHub Actions based continuous integration (CI).
 
-Tests are automatically executed on every push and pull request using multiple Python versions.
+Tests are automatically executed on every push and pull request using Python 3.10 through 3.14.
 
 The current test suite includes:
 
