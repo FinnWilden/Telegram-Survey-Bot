@@ -23,7 +23,7 @@ requires additional runner/build and Apple signing setup.
 
 1. Finish user testing and merge the intended source changes to the release
    branch.
-2. Review `config/config.json` and make sure it contains only the placeholder
+2. Review `config/config.yml` and make sure it contains only the placeholder
    bot token. Never package a live token, study configuration, or database.
 3. Run the tests and inspect the packaging workflow on GitHub Actions.
 4. Test the resulting packages on clean target machines for each supported
@@ -71,14 +71,24 @@ create a new version tag for each release.
 
 ## Package contents and user data
 
-Each ZIP contains the PyInstaller application directory, `config/config.json`
+Each ZIP contains the PyInstaller application directory, `config/config.yml`
 with a placeholder token, empty `db` and `log` directories, the license, and
 a packaged README. It intentionally excludes `config/test.*`, the working
 database, local logs, virtual environments, and the developer's configuration.
+The YAML file is copied into the archive as a separate editable file; it is
+not bundled into the executable.
 
-Users should extract the complete archive, edit `config/config.json`, and run
-the executable from the extracted `Telegram-Survey-Bot` directory. They must
-keep the directory together: the bot reads configuration and stores its
-database/logs relative to its current working directory. The database
-contains participant state and should be backed up and handled as sensitive
-study data.
+Before the first start, users need to configure either the supplied
+`config/config.yml` or a separate YAML/JSON file with their bot token and study
+settings. The packaged template has a placeholder token and example URLs, so
+it is not ready to run unchanged. Users can edit the supplied file, or pass
+another config file as the first command-line argument, for example
+`Survey-Bot.exe "C:\study\config.yml"` on Windows or
+`./Survey-Bot "/study/config.yml"` on Linux/macOS. Without an argument, the
+bot reads the separate `config/config.yml` file beside the executable in the
+extracted folder. The config lookup does not depend on the current working
+directory. Start the bot from the extracted folder so its database and logs
+are stored there as well.
+
+Users must keep the extracted directory together. The database contains
+participant state and should be backed up and handled as sensitive study data.

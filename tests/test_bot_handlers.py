@@ -9,6 +9,25 @@ import bot
 from bot_utils.bot_enums import SurveyType
 
 
+def test_default_config_path_for_frozen_app_is_next_to_executable(monkeypatch, tmp_path):
+    executable = tmp_path / "Survey-Bot.exe"
+    monkeypatch.setattr(bot.sys, "argv", [str(executable)])
+    monkeypatch.setattr(bot.sys, "executable", str(executable))
+    monkeypatch.setattr(bot.sys, "frozen", True, raising=False)
+
+    assert bot._get_config_path() == tmp_path / "config" / "config.yml"
+
+
+def test_config_path_argument_takes_precedence_for_frozen_app(monkeypatch, tmp_path):
+    executable = tmp_path / "Survey-Bot.exe"
+    supplied_config = tmp_path / "study.yml"
+    monkeypatch.setattr(bot.sys, "argv", [str(executable), str(supplied_config)])
+    monkeypatch.setattr(bot.sys, "executable", str(executable))
+    monkeypatch.setattr(bot.sys, "frozen", True, raising=False)
+
+    assert bot._get_config_path() == supplied_config
+
+
 @pytest.fixture
 def mock_message():
     return SimpleNamespace(message_id=999)
