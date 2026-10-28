@@ -762,6 +762,16 @@ async def delete_message_async(chat_id: int, message_id: int) -> None:
         logging.error("Telegram error while deleting message %d in chat %d: %s", message_id, chat_id, err)
 
 
+def _get_config_path() -> Path | None:
+    if len(sys.argv) > 1:
+        return Path(sys.argv[1])
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "config" / "config.yml"
+
+    return None
+
+
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
@@ -775,8 +785,7 @@ def main() -> None:
 
     logging.info("Load Config...")
     try:
-        config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
-        config_handler = ConfigHandler(config_file=config_path)
+        config_handler = ConfigHandler(config_file=_get_config_path())
 
     except ConfigValidationException as err:
         for message in err.message_list:
