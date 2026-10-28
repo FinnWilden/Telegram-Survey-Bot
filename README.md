@@ -32,7 +32,7 @@ The project is written in Python and supports Windows, Linux, and macOS.
 * Automatic deletion of expired survey links
 * SQLite-based lightweight persistence
 * Logging and emergency restart handling
-* Fully configurable through a single JSON configuration file
+* Fully configurable through a single PyYaml configuration file
 
 ---
 
