@@ -198,13 +198,13 @@ def run_main(tmp_path, monkeypatch, config_dict):
     monkeypatch.setattr(bot, "init_application", init_application)
     monkeypatch.setattr(bot, "init_handlers", Mock())
 
-    def _run(config_text=None, token=SECRET_TOKEN, file_name="config.yml", **overrides):
+    def _run(config_text=None, token=SECRET_TOKEN, file_name="config.yml", extra_args=(), **overrides):
         config_file = tmp_path / file_name
         if config_text is None:
             config_text = yaml.safe_dump(config_dict(api_token=token, **overrides))
         if config_text is not False:
             config_file.write_text(config_text, encoding="utf-8")
-        monkeypatch.setattr(sys, "argv", ["bot.py", str(config_file)])
+        monkeypatch.setattr(sys, "argv", ["bot.py", str(config_file), *extra_args])
         with pytest.raises(SystemExit) as exc_info:
             bot.main()
         return exc_info.value.code, init_application
@@ -296,3 +296,70 @@ def test_console_log_messages_are_not_colour_highlighted():
     from rich.highlighter import NullHighlighter
 
     assert isinstance(bot.console_handler.highlighter, NullHighlighter)
+
+
+# -----------------------------------------------------------------------------
+# Debug mode (start option --debug)
+# -----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def restore_log_levels():
+    yield
+    bot.configure_log_levels(debug=False)
+
+
+@pytest.mark.parametrize("argv", [
+    ["bot.py", "config/local-test.yml", "--debug"],
+    ["bot.py", "--debug", "config/local-test.yml"],
+])
+def test_debug_option_is_not_taken_as_config_file(monkeypatch, argv):
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert bot._get_config_path() == Path("config/local-test.yml")
+    assert bot._debug_requested() is True
+
+
+def test_debug_option_alone_keeps_the_default_config_of_the_executable(monkeypatch, tmp_path):
+    executable = tmp_path / "Survey-Bot.exe"
+    monkeypatch.setattr(sys, "argv", [str(executable), "--debug"])
+    monkeypatch.setattr(sys, "executable", str(executable))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+    assert bot._get_config_path() == tmp_path / "config" / "config.yml"
+
+
+def test_normal_mode_hides_internal_steps_and_scheduler_runs(restore_log_levels):
+    bot.configure_log_levels(debug=False)
+
+    assert logging.getLogger().getEffectiveLevel() == logging.INFO
+    assert not logging.getLogger("bot_utils.schedule_util").isEnabledFor(logging.DEBUG)
+    assert not logging.getLogger("apscheduler.executors.default").isEnabledFor(logging.INFO)
+
+
+def test_debug_mode_shows_internal_steps_and_scheduler_runs(restore_log_levels):
+    bot.configure_log_levels(debug=True)
+
+    assert logging.getLogger("bot_utils.schedule_util").isEnabledFor(logging.DEBUG)
+    assert logging.getLogger("apscheduler.executors.default").isEnabledFor(logging.INFO)
+
+
+@pytest.mark.parametrize("debug", [False, True])
+def test_libraries_that_may_log_the_token_stay_quiet(restore_log_levels, debug):
+    bot.configure_log_levels(debug=debug)
+
+    assert not logging.getLogger("telegram.ext").isEnabledFor(logging.DEBUG)
+    assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
+    assert not logging.getLogger("httpcore").isEnabledFor(logging.INFO)
+
+
+def test_main_switches_on_debug_mode(run_main, caplog, restore_log_levels):
+    caplog.set_level(logging.INFO)
+
+    code, _ = run_main(token=PLACEHOLDER_TOKEN, extra_args=("--debug", "--verbose"))
+
+    text = logged_text(caplog)
+    assert code == 1
+    assert "Debug mode" in text
+    assert "Unknown start option '--verbose'" in text
+    assert logging.getLogger().getEffectiveLevel() == logging.DEBUG

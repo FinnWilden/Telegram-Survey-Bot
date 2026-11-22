@@ -108,6 +108,10 @@ own answers always stay visible. The dashboard is not started when the bot
 runs without an interactive terminal (e.g. as a service); the log file is
 written in both cases.
 
+The log shows what happens in the study: subscriptions, sent surveys, warnings
+and errors. Start the bot with `--debug` (e.g. `python bot.py config/local-test.yml --debug`)
+to also see internal steps such as every scheduled job and its execution.
+
 Unsubscribed participants and their delivery history remain in the database.
 For database entries that existed before this feature, Telegram IDs and
 conditions are recovered from the subscriber table, but historical

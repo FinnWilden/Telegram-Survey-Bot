@@ -61,6 +61,10 @@
 #
 #  Ohne Argument verwendet der Bot config/config.yml, NICHT deine Kopie.
 #
+#  Mit --debug am Ende (z. B. python bot.py config\local-test.yml --debug)
+#  zeigt der Bot zusätzlich interne Details wie jeden geplanten Termin und
+#  jede Job-Ausführung. Für normale Tests ist das nicht nötig.
+#
 #  Der Bot läuft, solange das Fenster offen ist und der Rechner nicht schläft.
 #  Beenden mit Strg + C.
 #

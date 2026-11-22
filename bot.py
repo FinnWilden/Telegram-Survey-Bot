@@ -89,8 +89,26 @@ logging.basicConfig(
         console_handler,
     ],
 )
-logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
+DEBUG_OPTION = "--debug"
+
+
+def configure_log_levels(debug: bool) -> None:
+    """
+    Normal mode shows what happens in the study (subscriptions, sent surveys, errors).
+    Debug mode (start option --debug) adds the bot's internal steps and the scheduler's
+    job runs.
+
+    Telegram and HTTP libraries stay quiet in both modes: their debug output can contain
+    the bot token.
+    """
+    logging.getLogger().setLevel(logging.DEBUG if debug else logging.INFO)
+    logging.getLogger("apscheduler").setLevel(logging.INFO if debug else logging.WARNING)
+    logging.getLogger("telegram").setLevel(logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
+configure_log_levels(debug=False)
 
 TIMEZONE_STATE = 0
 TIME_STATE = 1
@@ -472,7 +490,7 @@ async def subscribe_ask(
     """
     Sends the next subscription question.
     """
-    logging.info(SUBSCRIPTION_ASK.format(chat_id, log_msg))
+    logging.debug(SUBSCRIPTION_ASK.format(chat_id, log_msg))
     msg = await send_tracked_message(context.bot, chat_id, usr_msg)
     db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE)
 
@@ -844,7 +862,7 @@ def remove_job_from_scheduler(job_id: str) -> None:
     try:
         scheduler.remove_job(job_id)
     except JobLookupError:
-        logging.info("Job with id " + job_id + " not rescheduled")
+        logging.debug("Job with id " + job_id + " not rescheduled")
 
 
 async def send_end_survey_reminder_async(chat_id_list: list[int], date_str: str) -> None:
@@ -898,9 +916,21 @@ async def delete_message_async(chat_id: int, message_id: int) -> None:
         logging.error("Telegram error while deleting message %d in chat %d: %s", message_id, chat_id, err)
 
 
+def _start_arguments() -> list[str]:
+    """
+    The start arguments without options such as --debug.
+    """
+    return [argument for argument in sys.argv[1:] if not argument.startswith("--")]
+
+
+def _debug_requested() -> bool:
+    return DEBUG_OPTION in sys.argv[1:]
+
+
 def _get_config_path() -> Path | None:
-    if len(sys.argv) > 1:
-        return Path(sys.argv[1])
+    arguments = _start_arguments()
+    if arguments:
+        return Path(arguments[0])
 
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent / "config" / "config.yml"
@@ -918,6 +948,13 @@ def main() -> None:
     Main method. Initializes all required objects and starts the bot.
     """
     global config_handler, schedule_util, db_handler, scheduler
+
+    if _debug_requested():
+        configure_log_levels(debug=True)
+        logging.info("Debug mode: detailed log messages are shown.")
+    for option in sys.argv[1:]:
+        if option.startswith("--") and option != DEBUG_OPTION:
+            logging.warning("Unknown start option '%s' is ignored. Available: %s", option, DEBUG_OPTION)
 
     logging.info("Load Config...")
     config_path: Path | None = None
