@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 log/
 db/
+export/
 .pytest_cache/
 .vscode/
 build/

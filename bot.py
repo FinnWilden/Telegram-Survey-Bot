@@ -55,6 +55,7 @@ from bot_utils.config_validator import ConfigValidationException
 from bot_utils.console_dashboard import ConsoleDashboard
 from bot_utils.db_handler import DbHandler, TrackedMessage
 from bot_utils.emergency_start import EmergencyStart
+from bot_utils.overview_export import OverviewExporter
 from bot_utils.schedule_util import ScheduleUtil
 from bot_utils.startup_errors import (
     HideBootstrapTracebacks,
@@ -113,6 +114,8 @@ configure_log_levels(debug=False)
 # Link deletion: planned deletions are stored in the database and checked regularly, so they
 # also happen after a restart or crash. Telegram only lets bots delete messages for 48 hours.
 DELETION_CHECK_SECONDS = 30
+EXPORT_INTERVAL_SECONDS = 60
+overview_exporter: OverviewExporter | None = None
 TELEGRAM_DELETE_LIMIT = timedelta(hours=48)
 START_LINK_TYPE = "START_LINK"   # start survey link; SUBSCRIBE is used for the subscription questions
 NOTICE_TYPE = "NOTICE"           # short notices such as "already subscribed", deleted after a minute
@@ -265,6 +268,8 @@ async def post_shutdown(_: Application) -> None:
         logging.info("Shutdown scheduler...")
         scheduler.shutdown(wait=True)
 
+    export_overview()  # the files show the final state after the bot was stopped
+
 
 # -----------------------------------------------------------------------------
 # Helpers for APScheduler -> asyncio bridge
@@ -306,6 +311,25 @@ def schedule_notifications() -> None:
 
     warn_about_telegram_delete_limit()
 
+    # readable copies of the operator console in the export folder, written at startup and every minute
+    global overview_exporter
+    overview_exporter = OverviewExporter(
+        db_handler,
+        participant_number_digits=(
+            config_handler.config.participantNumberDigits if config_handler.config.useParticipantNumbers else None
+        ),
+    )
+    scheduler.add_job(
+        export_overview,
+        "interval",
+        seconds=EXPORT_INTERVAL_SECONDS,
+        id="overview-export",
+        next_run_time=datetime.now(),
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # the first check runs right at startup and deletes everything that became due meanwhile
     scheduler.add_job(
         delete_due_messages,
@@ -317,6 +341,18 @@ def schedule_notifications() -> None:
         max_instances=1,
         coalesce=True,
     )
+
+
+def export_overview() -> None:
+    """
+    Updates the overview files. Called by APScheduler and once more at shutdown.
+    """
+    if overview_exporter is None:
+        return
+    try:
+        overview_exporter.export()
+    except Exception as err:  # the files are a convenience; problems must never stop the bot
+        logging.error("Could not update the overview files in '%s': %s", overview_exporter.folder, err)
 
 
 def warn_about_telegram_delete_limit() -> None:

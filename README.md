@@ -112,6 +112,11 @@ The log shows what happens in the study: subscriptions, sent surveys, warnings
 and errors. Start the bot with `--debug` (e.g. `python bot.py config/local-test.yml --debug`)
 to also see internal steps such as every scheduled job and its execution.
 
+The same information is also written to the `export` folder every minute (and at
+start and stop), so it can be read without the terminal or the database:
+`overview.txt` (the dashboard), `participants.csv` (all participants) and
+`deliveries.csv` (every sent message). The CSV files use `;` and open directly in Excel.
+
 Unsubscribed participants and their delivery history remain in the database.
 For database entries that existed before this feature, Telegram IDs and
 conditions are recovered from the subscriber table, but historical

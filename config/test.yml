@@ -119,6 +119,10 @@
 #    v  Versandverlauf: die letzten 100 gesendeten Nachrichten
 #    n / b  nächste / vorherige Seite
 #
+#  Dieselben Infos stehen auch als Dateien im Ordner export (jede Minute
+#  aktualisiert): overview.txt, participants.csv und deliveries.csv. Die CSV-
+#  Dateien lassen sich per Doppelklick in Excel öffnen.
+#
 #  Startest du den Bot neu, während noch Termine offen sind, fragt er in der
 #  Kommandozeile, ob er sie neu einplanen soll:
 #    y -> offene Termine werden weiter verschickt (normalerweise richtig)

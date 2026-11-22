@@ -363,6 +363,17 @@ ORDER BY
     participants.chat_id
 """
 
+SELECT_ALL_OUTBOUND_MESSAGES = """
+SELECT
+    outbound_messages.sent_at,
+    outbound_messages.chat_id,
+    participant_numbers.code AS participant_number,
+    outbound_messages.message_type
+FROM outbound_messages
+LEFT JOIN participant_numbers ON outbound_messages.chat_id=participant_numbers.chat_id
+ORDER BY outbound_messages.id
+"""
+
 SELECT_RECENT_OUTBOUND_MESSAGES = """
 SELECT chat_id, message_type, sent_at
 FROM outbound_messages
