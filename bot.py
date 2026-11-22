@@ -210,7 +210,12 @@ async def post_init(app: Application) -> None:
             name="console-dashboard",
         )
 
-    EmergencyStart(schedule_util, db_handler, send_notification_broadcast)
+    EmergencyStart(
+        schedule_util,
+        db_handler,
+        send_notification_broadcast,
+        send_end_survey_reminder if config_handler.config.endSurveyReminderEnabled else None,
+    )
     schedule_notifications()
 
     logging.info("Start scheduler...")
