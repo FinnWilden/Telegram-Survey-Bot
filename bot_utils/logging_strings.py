@@ -51,5 +51,7 @@ EMERGENCY_DATES_WARN = (
     "If not, all previously subscribed users cannot subscribe to the bot again."
 )
 EMERGENCY_DATES_RESCHEDULE = "Reschedule {} survey dates:"
+EMERGENCY_REMINDERS_RESCHEDULE = "Reschedule {} end survey reminder dates"
+EMERGENCY_NO_TERMINAL = "No terminal to answer in (e.g. bot running as a background service). Answering '{}' automatically."
 EMERGENCY_DATES_IGNORE = "Ignore {} survey dates"
 EMERGENCY_DATES_IGNORE_DELETE = "Ignore and delete {} survey dates"

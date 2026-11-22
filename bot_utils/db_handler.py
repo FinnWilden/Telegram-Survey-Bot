@@ -39,6 +39,10 @@ DB_FILE = Path("db") / "userIdDb.db"
 # for larger ranges random numbers are drawn until a free one is found.
 FREE_NUMBER_ENUMERATION_LIMIT = 100_000
 
+# Type of the subscriber entries of scheduled end survey reminders. Before this type
+# existed, reminders were stored as END and were rescheduled as end surveys on restart.
+END_REMINDER_TYPE = "END_REMINDER"
+
 
 class DashboardSummary(TypedDict):
     total_participants: int
@@ -136,18 +140,20 @@ class DbHandler:
             self.logger.exception("Could not create database table")
             raise
 
-    def insert_end_reminder_entries_from_list(
+    def insert_end_reminder_entries(
         self,
-        survey_type: SurveyType,
         subscriber_information: list[tuple[int, int, int]],
         date_str: str,
     ) -> None:
         """
-        Inserts entries for end survey reminder.
+        Inserts the entries of a scheduled end survey reminder.
 
-        :param survey_type: The survey type
-        :param subscriber_information:
-        :param date_str:
+        They use their own type, so a restart reschedules them as reminders and not as end
+        surveys. Condition and end index are kept for the reminder's "No" button, which
+        sends the end survey link again.
+
+        :param subscriber_information: list of (chat id, condition, end index)
+        :param date_str: The reminder date ("%Y-%m-%d-%H:%M")
         :return: None
         """
         with self.create_connection() as connection:
@@ -156,7 +162,7 @@ class DbHandler:
             for chat_id, condition, end_index in subscriber_information:
                 cursor.execute(
                     INSERT_SUBSCRIBER,
-                    (chat_id, date_str, survey_type.name, condition, end_index),
+                    (chat_id, date_str, END_REMINDER_TYPE, condition, end_index),
                 )
 
             connection.commit()
@@ -256,6 +262,7 @@ class DbHandler:
     def query_subscribers_emergency_start(self) -> list[tuple[datetime, SurveyType]]:
         """
         Query all currently scheduled survey dates to reschedule them.
+        End survey reminders are not included; see query_end_reminders().
 
         :return: scheduled survey dates as list of tuples (datetime, SurveyType)
         """
@@ -270,7 +277,23 @@ class DbHandler:
                 SurveyType[type_str],
             )
             for date_str, type_str in rows
+            if type_str in SurveyType.__members__
         ]
+
+    def query_end_reminders(self) -> dict[datetime, list[int]]:
+        """
+        Query all scheduled end survey reminders to reschedule them.
+
+        :return: reminder date -> chat ids of the participants to remind at that date
+        """
+        with self.create_connection() as connection:
+            rows = connection.execute(SELECT_SUBSCRIBERS_BY_TYPE, (END_REMINDER_TYPE,)).fetchall()
+
+        reminders: dict[datetime, list[int]] = {}
+        for row in rows:
+            reminder_date = datetime.strptime(row["date"], "%Y-%m-%d-%H:%M")
+            reminders.setdefault(reminder_date, []).append(row["chat_id"])
+        return reminders
 
     def delete_all_subscribers(self) -> None:
         """

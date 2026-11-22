@@ -7,7 +7,7 @@ import pytest
 
 import bot_utils.db_handler as db_module
 from bot_utils.bot_enums import SurveyType
-from bot_utils.db_handler import DbHandler
+from bot_utils.db_handler import END_REMINDER_TYPE, DbHandler
 
 
 @pytest.fixture
@@ -107,11 +107,10 @@ def test_query_subscribers_by_date_type(db_handler):
     assert rows[0]["end_index"] == -1
 
 
-def test_insert_end_reminder_entries_from_list(db_handler):
+def test_insert_end_reminder_entries(db_handler):
     date_str = "2026-05-15-18:00"
 
-    db_handler.insert_end_reminder_entries_from_list(
-        survey_type=SurveyType.END,
+    db_handler.insert_end_reminder_entries(
         subscriber_information=[
             (111, 0, 5),
             (222, 1, 6),
@@ -119,16 +118,14 @@ def test_insert_end_reminder_entries_from_list(db_handler):
         date_str=date_str,
     )
 
-    rows = db_handler.query_subscribers_by_date_type(
-        date_str,
-        SurveyType.END.name,
-    )
+    rows = db_handler.query_subscribers_by_date_type(date_str, END_REMINDER_TYPE)
 
-    assert len(rows) == 2
     assert [(row["chat_id"], row["condition"], row["end_index"]) for row in rows] == [
         (111, 0, 5),
         (222, 1, 6),
     ]
+    # reminders are not end surveys: an END broadcast at that time must not find them
+    assert db_handler.query_subscribers_by_date_type(date_str, SurveyType.END.name) == []
 
 
 def test_query_subscribers_emergency_start(db_handler):
@@ -181,8 +178,7 @@ def test_get_condition_and_end_index(db_handler):
     chat_id = 123
     date_str = "2026-05-15-18:00"
 
-    db_handler.insert_end_reminder_entries_from_list(
-        survey_type=SurveyType.END,
+    db_handler.insert_end_reminder_entries(
         subscriber_information=[(chat_id, 2, 7)],
         date_str=date_str,
     )
@@ -527,7 +523,7 @@ def test_participant_whose_dates_are_all_over_is_finished_but_still_subscribed(d
 
 def test_pending_end_reminder_keeps_a_participant_active(db_handler):
     subscribe(db_handler, 1, datetime(2020, 1, 1, 9, 0))
-    db_handler.insert_end_reminder_entries_from_list(SurveyType.END, [(1, 0, 0)], "2099-01-01-10:00")
+    db_handler.insert_end_reminder_entries([(1, 0, 0)], "2099-01-01-10:00")
 
     assert status_of(db_handler, 1) == "active"
 
@@ -561,3 +557,34 @@ def test_summary_counts_active_finished_and_unsubscribed(db_handler):
     assert summary["active_participants"] == 2
     assert summary["finished_participants"] == 1
     assert summary["unsubscribed_participants"] == 1
+
+
+# ---------------------------------------------------------------------------
+# End survey reminders after a restart
+# ---------------------------------------------------------------------------
+
+
+def test_emergency_start_query_does_not_return_reminders_as_surveys(db_handler):
+    db_handler.insert_new_subscriber_entries(1, [datetime(2099, 1, 1, 9, 0)], SurveyType.END, 0)
+    db_handler.insert_end_reminder_entries([(1, 0, 0)], "2099-01-01-10:00")
+
+    assert db_handler.query_subscribers_emergency_start() == [(datetime(2099, 1, 1, 9, 0), SurveyType.END)]
+
+
+def test_query_end_reminders_groups_participants_by_date(db_handler):
+    db_handler.insert_end_reminder_entries([(2, 0, 0), (1, 0, 0)], "2099-01-01-10:00")
+    db_handler.insert_end_reminder_entries([(3, 1, 0)], "2099-01-01-11:30")
+    db_handler.insert_new_subscriber_entries(4, [datetime(2099, 1, 1, 10, 0)], SurveyType.END, 0)
+
+    assert db_handler.query_end_reminders() == {
+        datetime(2099, 1, 1, 10, 0): [1, 2],
+        datetime(2099, 1, 1, 11, 30): [3],
+    }
+
+
+def test_unsubscribe_removes_pending_reminders(db_handler):
+    db_handler.insert_end_reminder_entries([(1, 0, 0)], "2099-01-01-10:00")
+
+    db_handler.remove_subscriber(1)
+
+    assert db_handler.query_end_reminders() == {}

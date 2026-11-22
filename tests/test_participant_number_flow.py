@@ -412,3 +412,42 @@ async def test_participant_is_finished_after_the_last_survey_and_cannot_subscrib
     study.telegram.clear()
     assert await study.subscribe(101) == ConversationHandler.END
     assert [message.text for message in study.telegram.sent] == ["Already subscribed"]
+
+
+@pytest.mark.asyncio
+async def test_restart_keeps_a_pending_end_reminder_a_reminder(tmp_path, config_dict, monkeypatch):
+    from bot_utils.emergency_start import EmergencyStart
+
+    study = Study(tmp_path, config_dict, monkeypatch, endSurveyReminderEnabled=True, endSurveyReminderDelayHours=1)
+    await study.subscribe(101)
+    number = study.number(101)
+    await study.send_end()  # end survey sent, reminder planned one hour later
+
+    # the bot is restarted before the reminder; the operator answers "y"
+    restarted_scheduler = Mock()
+    restarted_scheduler.get_job.return_value = None
+    monkeypatch.setattr(bot, "schedule_util", ScheduleUtil(restarted_scheduler, study.config_handler.config,
+                                                           study.db_handler))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    EmergencyStart(bot.schedule_util, study.db_handler, bot.send_notification_broadcast, bot.send_end_survey_reminder)
+
+    calls = restarted_scheduler.add_job.call_args_list
+    [(chat_ids, reminder_date)] = [c.kwargs["args"] for c in calls if c.args[0] is bot.send_end_survey_reminder]
+    survey_dates = [c.kwargs["args"][2] for c in calls if c.args[0] is bot.send_notification_broadcast]
+    assert chat_ids == [101]
+    assert reminder_date not in survey_dates  # the reminder is not planned as an end survey
+
+    # the rescheduled job fires: the participant gets the reminder question, not the end link
+    study.telegram.clear()
+    await bot.send_end_survey_reminder_async(chat_ids, reminder_date)
+    [question] = study.telegram.sent
+    assert question.text == "End survey reminder"
+    assert question.url is None  # answer buttons, no survey link
+
+    # pressing "No" sends the end survey link again, with the participant number
+    study.telegram.clear()
+    query = SimpleNamespace(answer=AsyncMock(), data=bot.ER_NO + "+" + reminder_date,
+                            message=SimpleNamespace(message_id=55))
+    await bot.handle_end_survey_reminder_callback(
+        SimpleNamespace(effective_chat=SimpleNamespace(id=101), callback_query=query), study.context())
+    assert study.telegram.urls_for(101) == [link(END_URL, number)]

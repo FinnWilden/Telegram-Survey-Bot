@@ -147,6 +147,13 @@ SELECT date, type
 FROM subscribers
 """
 
+SELECT_SUBSCRIBERS_BY_TYPE = """
+SELECT chat_id, date
+FROM subscribers
+WHERE type=?
+ORDER BY date, chat_id
+"""
+
 SELECT_SUBSCRIBER_CHAT_ID = """
 SELECT chat_id, date, type, condition, end_index
 FROM subscribers

@@ -103,12 +103,31 @@ class ScheduleUtil:
         :return: None
         """
         run_date = TimeUtil.get_date_time_in(hours=self.config.endSurveyReminderDelayHours)
+        date_str = self.schedule_end_survey_reminder_at(
+            exec_function,
+            run_date,
+            [chat_id for chat_id, _, _ in subscriber_information],
+        )
+        self.db_handler.insert_end_reminder_entries(subscriber_information, date_str)
+
+    def schedule_end_survey_reminder_at(self,
+                                        exec_function: Callable,
+                                        run_date: datetime,
+                                        chat_ids: list[int]) -> str:
+        """
+        Schedules an end survey reminder for the given participants at run_date.
+        Used for new reminders and to reschedule stored reminders after a restart.
+
+        :param exec_function: The execution function to send the end survey reminder
+        :param run_date: When the reminder is sent
+        :param chat_ids: The participants to remind
+        :return: The reminder date string, which identifies the reminder in the database
+        """
         date_str = run_date.strftime("%Y-%m-%d-%H:%M")
-        trigger = DateTrigger(run_date=run_date)
         self.scheduler.add_job(exec_function,
-                               trigger=trigger,
-                               args=[[chat_id for chat_id, _, _ in subscriber_information], date_str])
-        self.db_handler.insert_end_reminder_entries_from_list(SurveyType.END, subscriber_information, date_str)
+                               trigger=DateTrigger(run_date=run_date),
+                               args=[chat_ids, date_str])
+        return date_str
 
     def add_jobs_from_list(self, datetime_list: list[datetime], exec_function: Callable, survey_type: SurveyType) \
             -> None:

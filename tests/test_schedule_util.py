@@ -81,12 +81,11 @@ def test_schedule_end_survey_reminder_adds_job_and_db_entries(schedule_util, db_
     assert jobs[0].func == dummy_job
     assert jobs[0].args[0] == [111, 222]
 
-    db_handler.insert_end_reminder_entries_from_list.assert_called_once()
-    args = db_handler.insert_end_reminder_entries_from_list.call_args.args
+    db_handler.insert_end_reminder_entries.assert_called_once()
+    args = db_handler.insert_end_reminder_entries.call_args.args
 
-    assert args[0] == SurveyType.END
-    assert args[1] == subscriber_information
-    assert isinstance(args[2], str)
+    assert args[0] == subscriber_information
+    assert args[1] == jobs[0].args[1]  # stored with the same date string the reminder uses
 
 
 def test_add_job_adds_cron_job(schedule_util):
@@ -312,3 +311,16 @@ def test_assign_condition_sets_free_condition(schedule_util, db_handler):
 
     assert chat_id == 123
     assert condition == 1
+
+
+def test_schedule_end_survey_reminder_at_reschedules_a_stored_reminder(schedule_util, db_handler):
+    run_date = datetime(2099, 1, 1, 10, 0)
+
+    date_str = schedule_util.schedule_end_survey_reminder_at(dummy_job, run_date, [111, 222])
+
+    [job] = schedule_util.scheduler.get_jobs()
+    assert date_str == "2099-01-01-10:00"
+    assert job.func == dummy_job
+    assert job.args == ([111, 222], "2099-01-01-10:00")
+    assert job.trigger.run_date.replace(tzinfo=None) == run_date
+    db_handler.insert_end_reminder_entries.assert_not_called()
