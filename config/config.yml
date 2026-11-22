@@ -36,6 +36,8 @@ timeCalculationSettings:
   end_SurveysPerDay: 2
   end_DelayMinutesBetweenSurveys: 90
 
+# Planned deletions are stored and also happen after a restart. Telegram only lets bots
+# delete messages within 48 hours, so delays of 2880 minutes or more have no effect.
 linkDeletionSettings:
   deleteSubscriptionSetupMessages: false
 

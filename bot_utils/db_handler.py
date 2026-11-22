@@ -35,6 +35,12 @@ from bot_utils.logging_strings import *
 
 DB_FILE = Path("db") / "userIdDb.db"
 
+# Format of messages.sent_at and messages.delete_at; sorts like the time it describes.
+MESSAGE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# (chat id, message id, sent at or None for entries from older versions)
+TrackedMessage = tuple[int, int, "datetime | None"]
+
 # Up to this range size the free participant numbers are listed and one is chosen;
 # for larger ranges random numbers are drawn until a free one is found.
 FREE_NUMBER_ENUMERATION_LIMIT = 100_000
@@ -99,9 +105,20 @@ class DbHandler:
             self.create_table(connection, CREATE_TABLE_PARTICIPANT_NUMBERS)
             self.create_table(connection, CREATE_INDEX_OUTBOUND_MESSAGES_CHAT_ID)
             self._migrate_participants_table(connection)
+            self._add_missing_columns(connection, "messages", MESSAGE_MIGRATION_COLUMNS)
             connection.execute(BACKFILL_PARTICIPANTS)
             connection.execute(BACKFILL_PARTICIPANT_CONDITIONS)
             connection.commit()
+
+    @staticmethod
+    def _add_missing_columns(connection: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+        """
+        Add columns that were introduced after a table was first created.
+        """
+        existing_columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+        for column, statement in columns.items():
+            if column not in existing_columns:
+                connection.execute(statement)
 
     @staticmethod
     def _migrate_participants_table(connection: sqlite3.Connection) -> None:
@@ -605,73 +622,87 @@ class DbHandler:
             for row in rows
         ]
 
-    def insert_message_id(self, chat_id: int, message_id: int, survey_type: SurveyType) -> None:
+    def insert_message_id(
+        self,
+        chat_id: int,
+        message_id: int,
+        message_type: SurveyType | str,
+        delete_at: datetime | None = None,
+        sent_at: datetime | None = None,
+    ) -> None:
         """
-        Inserts a message id with the survey type.
+        Remembers a message so it can be deleted later.
 
         :param chat_id: The chat id
         :param message_id: The message id
-        :param survey_type: The survey type
+        :param message_type: The survey type or another message type, e.g. START_LINK
+        :param delete_at: When to delete it; None = only when the next link of this type is sent
+        :param sent_at: When it was sent (default: now)
         :return: None
         """
+        type_name = message_type.name if isinstance(message_type, SurveyType) else message_type
         with self.create_connection() as connection:
-            cursor = connection.cursor()
-            cursor.execute(INSERT_MESSAGE, (chat_id, message_id, survey_type.name))
+            connection.execute(
+                INSERT_MESSAGE,
+                (
+                    chat_id,
+                    message_id,
+                    type_name,
+                    self._message_time(sent_at or datetime.now()),
+                    None if delete_at is None else self._message_time(delete_at),
+                ),
+            )
             connection.commit()
 
-    def query_and_delete_message_ids(
-        self,
-        chat_ids: list[int],
-        survey_type: SurveyType,
-    ) -> list[tuple[int, int]]:
-        """
-        Query all message ids to a list of chat ids and a specific survey type.
+    @staticmethod
+    def _message_time(value: datetime) -> str:
+        return value.strftime(MESSAGE_TIME_FORMAT)
 
-        :param chat_ids: The chat id list
-        :param survey_type: The survey type
-        :return: list of tuples (chat id, message id)
-        """
-        chat_message_ids: list[tuple[int, int]] = []
+    @staticmethod
+    def parse_message_time(value: str | None) -> datetime | None:
+        return None if value is None else datetime.strptime(value, MESSAGE_TIME_FORMAT)
 
+    def get_tracked_messages(self, chat_ids: list[int], message_type: SurveyType | str) -> list[TrackedMessage]:
+        """
+        Return the remembered messages of a type for the given chats (without removing them).
+        """
+        type_name = message_type.name if isinstance(message_type, SurveyType) else message_type
         with self.create_connection() as connection:
-            cursor = connection.cursor()
-
-            for chat_id in chat_ids:
-                cursor.execute(SELECT_MESSAGE_ID, (chat_id, survey_type.name))
-                rows = cursor.fetchall()
-
-                chat_message_ids.extend(
-                    (row["chat_id"], row["message_id"])
-                    for row in rows
-                )
-
-                cursor.execute(DELETE_MESSAGE_ID, (chat_id, survey_type.name))
-
-            connection.commit()
-
-        return chat_message_ids
-
-    def query_and_delete_message_ids_by_type(self, survey_type: SurveyType) -> list[tuple[int, int]]:
-        """
-        Query all message ids to a specific survey type.
-
-        :param survey_type: The survey type
-        :return: list of tuples (chat id, message id)
-        """
-        with self.create_connection() as connection:
-            cursor = connection.cursor()
-            cursor.execute(SELECT_MESSAGE_TYPE, (survey_type.name,))
-            rows = cursor.fetchall()
-
-            message_ids = [
-                (row["chat_id"], row["message_id"])
-                for row in rows
+            rows = [
+                row
+                for chat_id in chat_ids
+                for row in connection.execute(SELECT_TRACKED_MESSAGES, (chat_id, type_name)).fetchall()
             ]
+        return [(row["chat_id"], row["message_id"], self.parse_message_time(row["sent_at"])) for row in rows]
 
-            cursor.execute(DELETE_MESSAGE_TYPE, (survey_type.name,))
+    def get_due_message_deletions(self, now: datetime) -> list[TrackedMessage]:
+        """
+        Return all messages whose planned deletion time has come, including those that became
+        due while the bot was not running.
+        """
+        with self.create_connection() as connection:
+            rows = connection.execute(SELECT_DUE_MESSAGE_DELETIONS, (self._message_time(now),)).fetchall()
+        return [(row["chat_id"], row["message_id"], self.parse_message_time(row["sent_at"])) for row in rows]
+
+    def remove_tracked_message(self, chat_id: int, message_id: int) -> None:
+        """
+        Forget a message after it was deleted or can no longer be deleted.
+        """
+        with self.create_connection() as connection:
+            connection.execute(DELETE_TRACKED_MESSAGE, (chat_id, message_id))
             connection.commit()
 
-        return message_ids
+    def schedule_deletion_for_type(self, message_type: SurveyType | str, delete_at: datetime) -> int:
+        """
+        Plan the deletion of all remembered messages of a type that have no deletion time yet.
+
+        :return: number of messages that got a deletion time
+        """
+        type_name = message_type.name if isinstance(message_type, SurveyType) else message_type
+        with self.create_connection() as connection:
+            cursor = connection.execute(SET_DELETE_AT_FOR_UNSCHEDULED_TYPE, (self._message_time(delete_at), type_name))
+            connection.commit()
+            return cursor.rowcount
 
     def insert_time_offset(self, chat_id: int, offset: int) -> None:
         """

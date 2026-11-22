@@ -95,9 +95,11 @@ def mock_config_handler():
     config.linkDeletionSettings = SimpleNamespace(
         deleteSubscriptionSetupMessages=False,
 
+        start_DeleteLinkAtSubscriptionDeadline=False,
         start_DeleteLinkTimer=False,
         start_DeleteDelayMinutes=1,
 
+        daily_DeleteLinkAtNewLink=False,
         daily_DeleteLinkTimer=False,
         daily_DeleteDelayMinutes=1,
 
@@ -124,7 +126,7 @@ def mock_db_handler():
     db.get_used_condition.return_value = 1
     db.get_condition.return_value = 1
     db.get_condition_and_end_index.return_value = (1, 0)
-    db.query_and_delete_message_ids.return_value = []
+    db.get_tracked_messages.return_value = []
     return db
 
 
@@ -194,6 +196,7 @@ async def test_send_survey_sends_daily_link(update, context, mock_db_handler, mo
         123,
         999,
         SurveyType.DAILY,
+        None,  # no deletion timer configured
     )
 
 
@@ -228,7 +231,10 @@ async def test_subscribe_rejects_if_already_subscribed(update, context, mock_db_
         chat_id=123,
         text="Already subscribed",
     )
-    mock_schedule_util.schedule_delete_message.assert_called_once()
+    # the notice is deleted after a minute; the deletion time is stored, not kept in memory
+    chat_id, message_id, message_type, delete_at = mock_db_handler.insert_message_id.call_args.args
+    assert (chat_id, message_id, message_type) == (123, 999, bot.NOTICE_TYPE)
+    assert timedelta(seconds=50) < delete_at - datetime.now() <= timedelta(minutes=1)
     mock_schedule_util.add_new_subscriber.assert_not_called()
 
 
@@ -253,6 +259,7 @@ async def test_subscribe_asks_for_wakeup_time_when_time_calculation_enabled(
         123,
         999,
         SurveyType.SUBSCRIBE,
+        None,  # deletion at the subscription deadline is off
     )
 
 

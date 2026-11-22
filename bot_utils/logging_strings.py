@@ -55,3 +55,15 @@ EMERGENCY_REMINDERS_RESCHEDULE = "Reschedule {} end survey reminder dates"
 EMERGENCY_NO_TERMINAL = "No terminal to answer in (e.g. bot running as a background service). Answering '{}' automatically."
 EMERGENCY_DATES_IGNORE = "Ignore {} survey dates"
 EMERGENCY_DATES_IGNORE_DELETE = "Ignore and delete {} survey dates"
+LINKS_TOO_OLD_TO_DELETE = (
+    "{} message(s) could not be deleted because they were sent more than 48 hours ago. "
+    "Telegram only allows bots to delete messages within 48 hours, so participants still see them."
+)
+LINK_DELETE_DELAY_TOO_LONG = (
+    "'linkDeletionSettings.{0}_DeleteDelayMinutes' is {1} minutes (48 hours) or more. Telegram only allows "
+    "bots to delete messages within 48 hours, so these links will not be deleted."
+)
+LINK_DELETE_DEADLINE_FAR = (
+    "Start links sent more than 48 hours before the subscription deadline ({}) cannot be deleted at the "
+    "deadline, because Telegram only allows bots to delete messages within 48 hours."
+)

@@ -47,23 +47,6 @@ def dummy_job(*args, **kwargs):
     pass
 
 
-def test_schedule_delete_messages_adds_date_job(schedule_util):
-    run_date = datetime(2026, 5, 15, 12, 0)
-
-    schedule_util.schedule_delete_messages(
-        dummy_job,
-        run_date,
-        123,
-        456,
-    )
-
-    jobs = schedule_util.scheduler.get_jobs()
-
-    assert len(jobs) == 1
-    assert jobs[0].func == dummy_job
-    assert jobs[0].args == (123, 456)
-
-
 def test_schedule_end_survey_reminder_adds_job_and_db_entries(schedule_util, db_handler):
     subscriber_information = [
         (111, 0, 5),
