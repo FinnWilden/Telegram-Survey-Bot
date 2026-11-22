@@ -55,6 +55,55 @@ CREATE TABLE IF NOT EXISTS conditions (
 );
 """
 
+CREATE_TABLE_PARTICIPANTS = """
+CREATE TABLE IF NOT EXISTS participants (
+    chat_id INTEGER PRIMARY KEY,
+    first_registered_at TEXT,
+    last_registered_at TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    unsubscribed_at TEXT,
+    condition INTEGER,
+    wakeup_time TEXT
+);
+"""
+
+PARTICIPANT_MIGRATION_COLUMNS = {
+    "condition": "ALTER TABLE participants ADD COLUMN condition INTEGER",
+    "wakeup_time": "ALTER TABLE participants ADD COLUMN wakeup_time TEXT",
+}
+
+CREATE_TABLE_OUTBOUND_MESSAGES = """
+CREATE TABLE IF NOT EXISTS outbound_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    message_type TEXT NOT NULL,
+    sent_at TEXT NOT NULL
+);
+"""
+
+CREATE_INDEX_OUTBOUND_MESSAGES_CHAT_ID = """
+CREATE INDEX IF NOT EXISTS idx_outbound_messages_chat_id
+ON outbound_messages (chat_id);
+"""
+
+BACKFILL_PARTICIPANTS = """
+INSERT OR IGNORE INTO participants (chat_id, first_registered_at, last_registered_at, is_active, condition)
+SELECT chat_id, NULL, NULL, 1, MIN(condition)
+FROM subscribers
+GROUP BY chat_id;
+"""
+
+BACKFILL_PARTICIPANT_CONDITIONS = """
+UPDATE participants
+SET condition=(
+    SELECT MIN(subscribers.condition)
+    FROM subscribers
+    WHERE subscribers.chat_id=participants.chat_id
+)
+WHERE condition IS NULL;
+"""
+
 
 # ============================================================
 # SUBSCRIBERS
@@ -202,4 +251,83 @@ FROM conditions
 DELETE_CONDITION = """
 DELETE FROM conditions
 WHERE chat_id=?
+"""
+
+UPSERT_PARTICIPANT = """
+INSERT INTO participants (
+    chat_id,
+    first_registered_at,
+    last_registered_at,
+    is_active,
+    unsubscribed_at,
+    condition,
+    wakeup_time
+)
+VALUES (?, ?, ?, 1, NULL, ?, ?)
+ON CONFLICT(chat_id) DO UPDATE SET
+    last_registered_at=excluded.last_registered_at,
+    is_active=1,
+    unsubscribed_at=NULL,
+    condition=excluded.condition,
+    wakeup_time=excluded.wakeup_time
+"""
+
+MARK_PARTICIPANT_UNSUBSCRIBED = """
+UPDATE participants
+SET is_active=0, unsubscribed_at=?
+WHERE chat_id=?
+"""
+
+MARK_ALL_PARTICIPANTS_UNSUBSCRIBED = """
+UPDATE participants
+SET is_active=0, unsubscribed_at=?
+WHERE is_active=1
+"""
+
+INSERT_OUTBOUND_MESSAGE = """
+INSERT INTO outbound_messages (chat_id, message_id, message_type, sent_at)
+VALUES (?, ?, ?, ?)
+"""
+
+SELECT_PARTICIPANT_SUMMARY = """
+SELECT
+    COUNT(*) AS total_participants,
+    COALESCE(SUM(is_active), 0) AS active_participants,
+    MIN(first_registered_at) AS first_registration,
+    MAX(last_registered_at) AS last_registration
+FROM participants
+"""
+
+SELECT_OUTBOUND_MESSAGE_COUNTS = """
+SELECT message_type, COUNT(*) AS message_count
+FROM outbound_messages
+GROUP BY message_type
+"""
+
+SELECT_PARTICIPANT_OVERVIEW = """
+SELECT
+    participants.chat_id,
+    participants.first_registered_at,
+    participants.last_registered_at,
+    participants.is_active,
+    participants.condition,
+    participants.wakeup_time,
+    offsets.offset AS time_offset,
+    COUNT(outbound_messages.id) AS message_count,
+    MAX(outbound_messages.sent_at) AS last_message_at
+FROM participants
+LEFT JOIN offsets ON participants.chat_id=offsets.chat_id
+LEFT JOIN outbound_messages ON participants.chat_id=outbound_messages.chat_id
+GROUP BY participants.chat_id
+ORDER BY
+    participants.first_registered_at IS NULL,
+    participants.first_registered_at,
+    participants.chat_id
+"""
+
+SELECT_RECENT_OUTBOUND_MESSAGES = """
+SELECT chat_id, message_type, sent_at
+FROM outbound_messages
+ORDER BY id DESC
+LIMIT 100
 """

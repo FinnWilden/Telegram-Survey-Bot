@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import datetime
 
 import pytest
@@ -258,3 +259,104 @@ def test_insert_and_get_time_offset(db_handler):
 
 def test_get_time_offset_returns_zero_if_missing(db_handler):
     assert db_handler.get_time_offset(999) == 0
+
+
+def test_participant_history_and_outbound_messages_are_persistent(db_handler, monkeypatch):
+    timestamps = iter([
+        "2026-11-11T10:00:00+01:00",
+        "2026-11-11T10:00:00+01:00",
+        "2026-11-11T10:05:00+01:00",
+        "2026-11-11T10:10:00+01:00",
+        "2026-11-11T10:15:00+01:00",
+    ])
+    monkeypatch.setattr(db_handler, "_timestamp_now", lambda: next(timestamps))
+
+    db_handler.insert_time_offset(123, -3600)
+    db_handler.register_participant(123, 2)
+    db_handler.record_outbound_message(123, 10, "SUBSCRIBE")
+    db_handler.register_participant(123, 1, "07:30")
+    db_handler.record_outbound_message(123, 11, "DAILY")
+
+    summary = db_handler.get_dashboard_summary()
+    participant = db_handler.get_participant_overview()[0]
+
+    assert summary == {
+        "total_participants": 1,
+        "active_participants": 1,
+        "first_registration": "2026-11-11T10:00:00+01:00",
+        "last_registration": "2026-11-11T10:05:00+01:00",
+        "message_counts": {"DAILY": 1, "SUBSCRIBE": 1},
+    }
+    assert participant == {
+        "chat_id": 123,
+        "first_registered_at": "2026-11-11T10:00:00+01:00",
+        "last_registered_at": "2026-11-11T10:05:00+01:00",
+        "is_active": True,
+        "condition": 1,
+        "wakeup_time": "07:30",
+        "time_offset": -3600,
+        "message_count": 2,
+        "last_message_at": "2026-11-11T10:10:00+01:00",
+    }
+    assert db_handler.get_recent_outbound_messages() == [
+        {
+            "chat_id": 123,
+            "message_type": "DAILY",
+            "sent_at": "2026-11-11T10:10:00+01:00",
+        },
+        {
+            "chat_id": 123,
+            "message_type": "SUBSCRIBE",
+            "sent_at": "2026-11-11T10:00:00+01:00",
+        },
+    ]
+
+    db_handler.remove_subscriber(123)
+
+    participant = db_handler.get_participant_overview()[0]
+    assert participant["is_active"] is False
+    assert participant["message_count"] == 2
+    assert db_handler.get_dashboard_summary()["total_participants"] == 1
+    assert db_handler.get_dashboard_summary()["active_participants"] == 0
+
+
+def test_backfills_existing_subscriber_without_inventing_registration_time(db_handler):
+    db_handler.insert_new_subscriber_entries(
+        chat_id=456,
+        date_list=[datetime(2026, 11, 12, 9, 0)],
+        survey_type=SurveyType.DAILY,
+        condition=0,
+    )
+
+    with db_handler.create_connection() as connection:
+        connection.execute("DELETE FROM participants WHERE chat_id=?", (456,))
+        connection.commit()
+
+    migrated_db_handler = DbHandler()
+
+    participant = migrated_db_handler.get_participant_overview()[0]
+    assert participant["chat_id"] == 456
+    assert participant["first_registered_at"] is None
+    assert participant["condition"] == 0
+
+
+def test_migrates_participants_table_created_without_parameter_columns(tmp_path, monkeypatch):
+    db_file = tmp_path / "old.db"
+    monkeypatch.setattr(db_module, "DB_FILE", db_file)
+    connection = sqlite3.connect(db_file)
+    connection.execute(
+        "CREATE TABLE participants (chat_id INTEGER PRIMARY KEY, first_registered_at TEXT, "
+        "last_registered_at TEXT, is_active INTEGER NOT NULL DEFAULT 1, unsubscribed_at TEXT)"
+    )
+    connection.execute("INSERT INTO participants VALUES (789, '2026-11-01T08:00:00+01:00', NULL, 1, NULL)")
+    connection.commit()
+    connection.close()
+
+    migrated_db_handler = DbHandler()
+    migrated_db_handler.register_participant(790, 3, "06:45")
+
+    participants = {p["chat_id"]: p for p in migrated_db_handler.get_participant_overview()}
+    assert participants[789]["condition"] is None
+    assert participants[789]["first_registered_at"] == "2026-11-01T08:00:00+01:00"
+    assert participants[790]["condition"] == 3
+    assert participants[790]["wakeup_time"] == "06:45"

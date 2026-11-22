@@ -24,6 +24,7 @@ import sqlite3
 
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 
 from bot_utils.bot_enums import SurveyType
 from bot_utils.sql_statements import *
@@ -31,6 +32,32 @@ from bot_utils.sql_statements import *
 from bot_utils.logging_strings import *
 
 DB_FILE = Path("db") / "userIdDb.db"
+
+
+class DashboardSummary(TypedDict):
+    total_participants: int
+    active_participants: int
+    first_registration: str | None
+    last_registration: str | None
+    message_counts: dict[str, int]
+
+
+class ParticipantOverview(TypedDict):
+    chat_id: int
+    first_registered_at: str | None
+    last_registered_at: str | None
+    is_active: bool
+    condition: int | None
+    wakeup_time: str | None
+    time_offset: int | None
+    message_count: int
+    last_message_at: str | None
+
+
+class OutboundMessageOverview(TypedDict):
+    chat_id: int
+    message_type: str
+    sent_at: str
 
 
 class DbHandler:
@@ -53,6 +80,25 @@ class DbHandler:
             self.create_table(connection, CREATE_TABLE_MESSAGES)
             self.create_table(connection, CREATE_TABLE_OFFSETS)
             self.create_table(connection, CREATE_TABLE_CONDITIONS)
+            self.create_table(connection, CREATE_TABLE_PARTICIPANTS)
+            self.create_table(connection, CREATE_TABLE_OUTBOUND_MESSAGES)
+            self.create_table(connection, CREATE_INDEX_OUTBOUND_MESSAGES_CHAT_ID)
+            self._migrate_participants_table(connection)
+            connection.execute(BACKFILL_PARTICIPANTS)
+            connection.execute(BACKFILL_PARTICIPANT_CONDITIONS)
+            connection.commit()
+
+    @staticmethod
+    def _migrate_participants_table(connection: sqlite3.Connection) -> None:
+        """
+        Add columns introduced after the participants table was first created.
+        """
+        existing_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(participants)")
+        }
+        for column, statement in PARTICIPANT_MIGRATION_COLUMNS.items():
+            if column not in existing_columns:
+                connection.execute(statement)
 
     @staticmethod
     def create_connection() -> sqlite3.Connection:
@@ -223,6 +269,7 @@ class DbHandler:
         """
         with self.create_connection() as connection:
             cursor = connection.cursor()
+            cursor.execute(MARK_ALL_PARTICIPANTS_UNSUBSCRIBED, (self._timestamp_now(),))
             cursor.execute(DELETE_ALL_SUBSCRIBERS)
             connection.commit()
 
@@ -314,10 +361,104 @@ class DbHandler:
         """
         with self.create_connection() as connection:
             cursor = connection.cursor()
+            cursor.execute(MARK_PARTICIPANT_UNSUBSCRIBED, (self._timestamp_now(), chat_id))
             cursor.execute(DELETE_MESSAGE, (chat_id,))
             cursor.execute(DELETE_SUBSCRIBER_CHAT_ID, (chat_id,))
             cursor.execute(DELETE_CONDITION, (chat_id,))
             connection.commit()
+
+    @staticmethod
+    def _timestamp_now() -> str:
+        return datetime.now().astimezone().isoformat(timespec="seconds")
+
+    def register_participant(
+        self,
+        chat_id: int,
+        condition: int | None = None,
+        wakeup_time: str | None = None,
+    ) -> None:
+        """
+        Record a completed subscription while retaining the participant's history.
+
+        :param chat_id: The chat id
+        :param condition: The condition the participant was assigned to
+        :param wakeup_time: The wake-up time entered by the participant (HH:MM)
+        """
+        timestamp = self._timestamp_now()
+        with self.create_connection() as connection:
+            connection.execute(
+                UPSERT_PARTICIPANT,
+                (chat_id, timestamp, timestamp, condition, wakeup_time),
+            )
+            connection.commit()
+
+    def record_outbound_message(self, chat_id: int, message_id: int, message_type: str) -> None:
+        """
+        Keep a permanent record of a successfully sent bot message.
+        """
+        with self.create_connection() as connection:
+            connection.execute(
+                INSERT_OUTBOUND_MESSAGE,
+                (chat_id, message_id, message_type, self._timestamp_now()),
+            )
+            connection.commit()
+
+    def get_dashboard_summary(self) -> DashboardSummary:
+        """
+        Return persistent participant and outbound-message counts for the console.
+        """
+        with self.create_connection() as connection:
+            summary_row = connection.execute(SELECT_PARTICIPANT_SUMMARY).fetchone()
+            message_rows = connection.execute(SELECT_OUTBOUND_MESSAGE_COUNTS).fetchall()
+
+        return {
+            "total_participants": summary_row["total_participants"],
+            "active_participants": summary_row["active_participants"],
+            "first_registration": summary_row["first_registration"],
+            "last_registration": summary_row["last_registration"],
+            "message_counts": {
+                row["message_type"]: row["message_count"]
+                for row in message_rows
+            },
+        }
+
+    def get_participant_overview(self) -> list[ParticipantOverview]:
+        """
+        Return all known participants with their message totals and latest delivery.
+        """
+        with self.create_connection() as connection:
+            rows = connection.execute(SELECT_PARTICIPANT_OVERVIEW).fetchall()
+
+        return [
+            {
+                "chat_id": row["chat_id"],
+                "first_registered_at": row["first_registered_at"],
+                "last_registered_at": row["last_registered_at"],
+                "is_active": bool(row["is_active"]),
+                "condition": row["condition"],
+                "wakeup_time": row["wakeup_time"],
+                "time_offset": row["time_offset"],
+                "message_count": row["message_count"],
+                "last_message_at": row["last_message_at"],
+            }
+            for row in rows
+        ]
+
+    def get_recent_outbound_messages(self) -> list[OutboundMessageOverview]:
+        """
+        Return the 100 most recently sent bot messages.
+        """
+        with self.create_connection() as connection:
+            rows = connection.execute(SELECT_RECENT_OUTBOUND_MESSAGES).fetchall()
+
+        return [
+            {
+                "chat_id": row["chat_id"],
+                "message_type": row["message_type"],
+                "sent_at": row["sent_at"],
+            }
+            for row in rows
+        ]
 
     def insert_message_id(self, chat_id: int, message_id: int, survey_type: SurveyType) -> None:
         """

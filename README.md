@@ -88,6 +88,34 @@ This helps detect regressions early and improves long-term maintainability and r
 
 ---
 
+# Operator console
+
+When the bot is started in an interactive terminal, a live dashboard is shown
+below the log output. It refreshes every two seconds and is controlled with
+single key presses (no Enter needed):
+
+| Key | View |
+|-----|------|
+| `d` | **Dashboard**: participant totals, active subscriptions, first and latest registration, and counts of sent messages (start, daily and end links, other messages) |
+| `p` | **Participants**: one row per participant with Telegram chat ID, first and latest registration, status (active/unsubscribed), the answers given during subscription (condition, wake-up time, time offset to the server), number of messages received and the latest delivery |
+| `v` | **Delivery history**: the 100 most recent messages sent by the bot with time, chat ID and message type |
+| `n` / `b` | Next / previous page in the participant and delivery views |
+
+Long tables are split into pages that fit the terminal height. On narrow
+terminals, less important participant columns are hidden; the participant's
+own answers always stay visible. The dashboard is not started when the bot
+runs without an interactive terminal (e.g. as a service); the log file is
+written in both cases.
+
+Unsubscribed participants and their delivery history remain in the database.
+For database entries that existed before this feature, Telegram IDs and
+conditions are recovered from the subscriber table, but historical
+registration and message-delivery times cannot be; those are shown as
+unknown. The database contains pseudonymous Telegram IDs, study conditions
+and delivery metadata, so protect it accordingly.
+
+---
+
 # Installation
 
 See the Wiki for installation instructions:
