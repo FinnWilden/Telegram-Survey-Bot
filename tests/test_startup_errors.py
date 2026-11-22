@@ -197,6 +197,7 @@ def run_main(tmp_path, monkeypatch, config_dict):
     init_application = Mock()
     monkeypatch.setattr(bot, "init_application", init_application)
     monkeypatch.setattr(bot, "init_handlers", Mock())
+    monkeypatch.setattr(bot, "LOG_FOLDER", tmp_path / "log")
 
     def _run(config_text=None, token=SECRET_TOKEN, file_name="config.yml", extra_args=(), **overrides):
         config_file = tmp_path / file_name
@@ -209,7 +210,12 @@ def run_main(tmp_path, monkeypatch, config_dict):
             bot.main()
         return exc_info.value.code, init_application
 
-    return _run
+    yield _run
+
+    if bot.file_handler is not None:  # main() started file logging into tmp_path; detach it again
+        logging.getLogger().removeHandler(bot.file_handler)
+        bot.file_handler.close()
+        bot.file_handler = None
 
 
 def logged_text(caplog):
@@ -363,3 +369,38 @@ def test_main_switches_on_debug_mode(run_main, caplog, restore_log_levels):
     assert "Debug mode" in text
     assert "Unknown start option '--verbose'" in text
     assert logging.getLogger().getEffectiveLevel() == logging.DEBUG
+
+
+# -----------------------------------------------------------------------------
+# Log file
+# -----------------------------------------------------------------------------
+
+
+def test_importing_the_bot_creates_no_log_file():
+    assert bot.file_handler is None
+    bot_log_files = [
+        h for h in logging.getLogger().handlers  # pytest adds its own handler writing to os.devnull
+        if isinstance(h, logging.FileHandler) and Path(h.baseFilename).name.startswith("log_")
+    ]
+    assert bot_log_files == []
+
+
+def test_starting_the_bot_writes_a_utf8_log_file(run_main, tmp_path, caplog):
+    run_main(token=PLACEHOLDER_TOKEN)
+
+    [log_file] = (tmp_path / "log").glob("log_*.log")
+    bot.file_handler.flush()
+    text = log_file.read_text(encoding="utf-8")
+    assert "-root-INFO: Load Config..." in text
+    assert "still the placeholder" in text
+    assert any(isinstance(f, HideBootstrapTracebacks) for f in bot.file_handler.filters)
+
+
+def test_file_logging_is_started_only_once(run_main, tmp_path):
+    run_main(token=PLACEHOLDER_TOKEN)
+    first = bot.file_handler
+
+    bot.start_file_logging()
+
+    assert bot.file_handler is first
+    assert len(list((tmp_path / "log").glob("log_*.log"))) == 1

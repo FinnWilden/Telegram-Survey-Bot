@@ -78,18 +78,34 @@ console = Console()
 # messages (e.g. job ids like 2026-11-22-20:17DAILY) in a different colour.
 console_handler = RichHandler(console=console, show_path=False, highlighter=NullHighlighter())
 console_handler.setFormatter(logging.Formatter("%(message)s"))
-file_handler = logging.FileHandler("log/log_{}.log".format(datetime.now().strftime("%Y%m%d-%H%M%S")))
-for log_handler in (console_handler, file_handler):
-    # startup login errors are reported readably by main(), without PTB's traceback and token
-    log_handler.addFilter(HideBootstrapTracebacks())
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s-%(name)s-%(levelname)s: %(message)s",
-    handlers=[
-        file_handler,
-        console_handler,
-    ],
-)
+# startup login errors are reported readably by main(), without PTB's traceback and token
+console_handler.addFilter(HideBootstrapTracebacks())
+logging.basicConfig(level=logging.INFO, handlers=[console_handler])
+
+LOG_FOLDER = Path("log")
+LOG_FORMAT = "%(asctime)s-%(name)s-%(levelname)s: %(message)s"
+file_handler: logging.FileHandler | None = None
+
+
+def start_file_logging() -> None:
+    """
+    Writes the log of this run to log/log_<start time>.log as well.
+
+    Called when the bot starts, not when bot.py is imported, so importing it (e.g. in the
+    tests) creates no log files.
+    """
+    global file_handler
+    if file_handler is not None:
+        return
+    LOG_FOLDER.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(
+        LOG_FOLDER / "log_{}.log".format(datetime.now().strftime("%Y%m%d-%H%M%S")),
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    file_handler.addFilter(HideBootstrapTracebacks())
+    logging.getLogger().addHandler(file_handler)
+
 DEBUG_OPTION = "--debug"
 
 
@@ -1035,6 +1051,7 @@ def main() -> None:
     """
     global config_handler, schedule_util, db_handler, scheduler
 
+    start_file_logging()
     if _debug_requested():
         configure_log_levels(debug=True)
         logging.info("Debug mode: detailed log messages are shown.")
