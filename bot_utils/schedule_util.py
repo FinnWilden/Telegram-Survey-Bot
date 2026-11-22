@@ -158,7 +158,7 @@ class ScheduleUtil:
         else:
             jitter = self.config.randomTimeShiftSettings.end_RandomTimeShiftMinutes * 60
         job_id = date.strftime("%Y-%m-%d-%H:%M") + survey_type.name
-        self.logger.info(SU_ADD_JOB.format(job_id))
+        self.logger.debug(SU_ADD_JOB.format(job_id))
         date_str = date.strftime("%Y-%m-%d-%H:%M")
         trigger = CronTrigger(year=date.year,
                               month=date.month,

@@ -185,7 +185,7 @@ class DbHandler:
         :param end_distribution_list: The end distribution list (optional)
         :return: None
         """
-        self.logger.info(DB_INSERT_SUBSCRIBER_ENTRY)
+        self.logger.debug(DB_INSERT_SUBSCRIBER_ENTRY)
 
         with self.create_connection() as connection:
             cursor = connection.cursor()
@@ -198,7 +198,7 @@ class DbHandler:
 
                 date_str = date.strftime("%Y-%m-%d-%H:%M")
 
-                self.logger.info(
+                self.logger.debug(
                     DB_INSERT_SUBSCRIBER_ENTRY_DATA.format(
                         chat_id,
                         date_str,
@@ -223,7 +223,7 @@ class DbHandler:
         :param condition: The new entered condition of the subscriber
         :return: None
         """
-        self.logger.info(DB_UPDATE_CONDITION.format(chat_id, condition))
+        self.logger.debug(DB_UPDATE_CONDITION.format(chat_id, condition))
 
         with self.create_connection() as connection:
             cursor = connection.cursor()
