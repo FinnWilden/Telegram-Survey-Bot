@@ -7,16 +7,25 @@
 #  1 Stunde 15 Minuten. Alle Termine richten sich nach der Anmeldung der
 #  jeweiligen Person, du musst also keine Studientage eintragen.
 #
+#  WICHTIG: Diese Datei ist die Vorlage im Git-Repository. Trage deinen Token
+#  NICHT hier ein, sondern arbeite mit einer Kopie (siehe 1a).
+#
 # -----------------------------------------------------------------------------
 #  1. DAS MUSST DU VOR DEM START ÄNDERN
 # -----------------------------------------------------------------------------
 #
-#  a) api_token (Pflicht)
-#     Trage den Token deines Bots ein. Du bekommst ihn in Telegram vom
-#     @BotFather (Befehl /newbot für einen neuen Bot, /token für einen
-#     bestehenden). Beispiel: api_token: "1234567890:AAH-abcdefg..."
+#  a) Kopie anlegen und api_token eintragen (Pflicht)
+#     Kopiere diese Datei nach config/local-test.yml und mache ALLE folgenden
+#     Änderungen nur in der Kopie. Dateien mit dem Muster config/local-*.yml
+#     ignoriert Git, so kann dein Token nicht versehentlich auf GitHub landen.
+#       Windows (PowerShell):  Copy-Item config\test.yml config\local-test.yml
+#       macOS / Linux:         cp config/test.yml config/local-test.yml
+#
+#     Trage in der Kopie den Token deines Bots ein. Du bekommst ihn in
+#     Telegram vom @BotFather (Befehl /newbot für einen neuen Bot, /token für
+#     einen bestehenden). Beispiel: api_token: "1234567890:AAH-abcdefg..."
 #     Am besten verwendest du einen eigenen Test-Bot und nicht den Bot der
-#     echten Studie.
+#     echten Studie. Speichern nicht vergessen.
 #
 #  b) subscription_start_date / subscription_deadline (prüfen)
 #     Nur in diesem Zeitraum nimmt der Bot Anmeldungen an. Er ist auf
@@ -42,15 +51,15 @@
 #  mit dieser Datei nicht.
 #
 #  Öffne eine Kommandozeile im Projektordner (dem Ordner mit bot.py) und
-#  starte den Bot mit dieser Datei als Argument:
+#  starte den Bot mit deiner Kopie als Argument:
 #
 #    Windows (PowerShell):   .\.venv\Scripts\Activate.ps1
-#                            python bot.py config\test.yml
+#                            python bot.py config\local-test.yml
 #
 #    macOS / Linux:          source .venv/bin/activate
-#                            python3 bot.py config/test.yml
+#                            python3 bot.py config/local-test.yml
 #
-#  Ohne Argument verwendet der Bot config/config.yml, NICHT diese Datei.
+#  Ohne Argument verwendet der Bot config/config.yml, NICHT deine Kopie.
 #
 #  Der Bot läuft, solange das Fenster offen ist und der Rechner nicht schläft.
 #  Beenden mit Strg + C.

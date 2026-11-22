@@ -8,3 +8,8 @@ db/
 build/
 dist/
 /Survey-Bot.spec
+
+# personal configs with real bot tokens, e.g. config/local-test.yml
+config/local-*.yml
+config/local-*.yaml
+config/local-*.json
