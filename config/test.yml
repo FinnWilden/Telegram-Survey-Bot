@@ -1,12 +1,139 @@
+# =============================================================================
+#  TEST-KONFIGURATION FÜR EINEN KURZEN TESTLAUF MIT ECHTEN TEILNEHMENDEN
+# =============================================================================
+#
+#  Mit dieser Datei kannst du den Bot mit echten Personen ausprobieren, bevor
+#  die eigentliche Studie startet. Ein kompletter Durchlauf dauert etwa
+#  1 Stunde 15 Minuten. Alle Termine richten sich nach der Anmeldung der
+#  jeweiligen Person, du musst also keine Studientage eintragen.
+#
+# -----------------------------------------------------------------------------
+#  1. DAS MUSST DU VOR DEM START ÄNDERN
+# -----------------------------------------------------------------------------
+#
+#  a) api_token (Pflicht)
+#     Trage den Token deines Bots ein. Du bekommst ihn in Telegram vom
+#     @BotFather (Befehl /newbot für einen neuen Bot, /token für einen
+#     bestehenden). Beispiel: api_token: "1234567890:AAH-abcdefg..."
+#     Am besten verwendest du einen eigenen Test-Bot und nicht den Bot der
+#     echten Studie.
+#
+#  b) subscription_start_date / subscription_deadline (prüfen)
+#     Nur in diesem Zeitraum nimmt der Bot Anmeldungen an. Er ist auf
+#     22.11.2026 bis 31.05.2027 eingestellt. Format: "JJJJ-MM-TT HH:MM".
+#
+#  c) urls (optional)
+#     Ersetze die example.com-Links durch die Links deiner Umfragen (z. B.
+#     SoSci Survey, LimeSurvey, Qualtrics). {participant} muss in jedem Link
+#     stehen bleiben; der Bot setzt dort die Teilnehmernummer der Person ein,
+#     z. B. https://example.com/start?id=04711. Lässt du example.com stehen,
+#     öffnet der Link nur eine Beispielseite, aber die Nummer ist in der
+#     Adresszeile sichtbar. Das reicht, um den Ablauf zu prüfen.
+#
+#  d) texts (optional)
+#     Alle Nachrichten an die Teilnehmenden kannst du unten frei anpassen.
+#
+# -----------------------------------------------------------------------------
+#  2. BOT STARTEN
+# -----------------------------------------------------------------------------
+#
+#  Diese Datei braucht die Quellcode-Version vom main-Branch (oder ein Release
+#  nach v2.0.0). v2.0.0 kennt die Teilnehmernummern noch nicht und startet
+#  mit dieser Datei nicht.
+#
+#  Öffne eine Kommandozeile im Projektordner (dem Ordner mit bot.py) und
+#  starte den Bot mit dieser Datei als Argument:
+#
+#    Windows (PowerShell):   .\.venv\Scripts\Activate.ps1
+#                            python bot.py config\test.yml
+#
+#    macOS / Linux:          source .venv/bin/activate
+#                            python3 bot.py config/test.yml
+#
+#  Ohne Argument verwendet der Bot config/config.yml, NICHT diese Datei.
+#
+#  Der Bot läuft, solange das Fenster offen ist und der Rechner nicht schläft.
+#  Beenden mit Strg + C.
+#
+#  Optional, aber praktisch: Hinterlege beim @BotFather mit /setcommands die
+#  Befehle, damit sie in Telegram als Menü erscheinen:
+#    subscribe - Zur Studie anmelden
+#    survey - Umfrage-Link anfordern
+#    unsubscribe - Von der Studie abmelden
+#    help - Hilfe anzeigen
+#
+# -----------------------------------------------------------------------------
+#  3. DAS MACHEN DIE TEILNEHMENDEN
+# -----------------------------------------------------------------------------
+#
+#  1. In Telegram nach dem Benutzernamen des Bots suchen und den Chat öffnen.
+#  2. Auf "Starten" tippen (oder /start senden) -> Begrüßung.
+#  3. /subscribe senden.
+#  4. Der Bot fragt nach der Aufwachzeit. Für diesen Test die AKTUELLE
+#     Uhrzeit eingeben, z. B. 14:05. Alle weiteren Nachrichten werden von
+#     dieser Uhrzeit aus berechnet.
+#
+#  Danach passiert automatisch (Beispiel mit Eingabe 14:05):
+#    sofort         Start-Link
+#    14:08          1. Tages-Link
+#    14:10          2. Tages-Link
+#    14:12          3. Tages-Link
+#    14:15          End-Link
+#    15:15          Erinnerung "Hast du die End-Umfrage schon ausgefüllt?"
+#                   -> "Nein" schickt den End-Link erneut, "Ja" schließt ab.
+#
+#  Jederzeit möglich:
+#    /survey       schickt sofort einen Tages-Link
+#    /unsubscribe  meldet ab, danach kommen keine Nachrichten mehr
+#    /help         zeigt die Befehle
+#
+#  Wichtig: Wer eine Uhrzeit eingibt, die schon mehr als ein paar Minuten
+#  vorbei ist, bekommt die Tages- und End-Links nicht, weil deren Termine dann
+#  in der Vergangenheit liegen. In dem Fall: /unsubscribe, dann erneut
+#  /subscribe und die aktuelle Uhrzeit eingeben.
+#
+#  Alle Teilnehmenden und der Rechner mit dem Bot sollten in derselben
+#  Zeitzone sein.
+#
+# -----------------------------------------------------------------------------
+#  4. WÄHREND DES TESTS
+# -----------------------------------------------------------------------------
+#
+#  Im Kommandozeilenfenster siehst du eine Live-Übersicht. Umschalten mit
+#  einer Taste (ohne Enter):
+#    d  Dashboard: Anzahl Teilnehmende, Anmeldungen, gesendete Nachrichten
+#    p  Teilnehmende: Telegram-ID, Teilnehmernummer, Status, Aufwachzeit, ...
+#    v  Versandverlauf: die letzten 100 gesendeten Nachrichten
+#    n / b  nächste / vorherige Seite
+#
+#  Startest du den Bot neu, während noch Termine offen sind, fragt er in der
+#  Kommandozeile, ob er sie neu einplanen soll:
+#    y -> offene Termine werden weiter verschickt (normalerweise richtig)
+#    n -> er fragt danach, ob die Einträge aus der Datenbank gelöscht werden
+#
+# -----------------------------------------------------------------------------
+#  5. NACH DEM TEST
+# -----------------------------------------------------------------------------
+#
+#  Die Testpersonen, ihre Teilnehmernummern und alle Versanddaten liegen in
+#  db/userIdDb.db. Bevor die echte Studie startet: Bot beenden und die Datei
+#  db/userIdDb.db löschen oder an einen anderen Ort verschieben. Sonst zählen
+#  die Testpersonen in der Studie mit und behalten ihre Nummern. Beim nächsten
+#  Start legt der Bot eine neue, leere Datenbank an.
+#  Protokolle des Testlaufs liegen im Ordner log.
+#
+# =============================================================================
+
 api_token: "YOUR_TELEGRAM_BOT_TOKEN"
 
-surveyCommandEnabled: true
-participantsEnterCondition: false
-uniqueConditions: true
+surveyCommandEnabled: true          # /survey liefert jederzeit einen Tages-Link
+participantsEnterCondition: false   # Kondition wird vom Bot vergeben, nicht abgefragt
+uniqueConditions: false             # beliebig viele Personen pro Kondition
 
-subscription_start_date: "2026-05-12 00:00"
-subscription_deadline: "2027-05-12 00:00"
+subscription_start_date: "2026-11-22 00:00"
+subscription_deadline: "2027-05-31 23:59"
 
+# Feste Studientage werden nicht gebraucht, weil useDayCalculation aktiv ist.
 daily_dates: []
 daily_times: []
 end_dates: []
@@ -14,84 +141,90 @@ end_times: []
 
 useTimeZoneCalculation: false
 
+# Tag 0 = Tag der Anmeldung: alle Umfragen kommen noch am selben Tag.
 useDayCalculation: true
 dayCalculationSettings:
-  daily_SurveyDays: [1]
-  end_SurveyDays: [1]
+  daily_SurveyDays: [0]
+  end_SurveyDays: [0]
 
+# Uhrzeiten ab der eingegebenen Aufwachzeit (hier: aktuelle Uhrzeit).
 useTimeCalculation: true
 timeCalculationSettings:
-  daily_DelayMinutesAfterWakeup: 1
-  daily_SurveysPerDay: 2
-  daily_DelayMinutesBetweenSurveys: 1
+  daily_DelayMinutesAfterWakeup: 3     # 1. Tages-Link 3 Minuten nach der Eingabe
+  daily_SurveysPerDay: 3               # 3 Tages-Links ...
+  daily_DelayMinutesBetweenSurveys: 2  # ... im Abstand von 2 Minuten
 
-  end_DelayMinutesAfterWakeup: 1
+  end_DelayMinutesAfterWakeup: 10      # End-Link 10 Minuten nach der Eingabe
   end_SurveysPerDay: 1
   end_DelayMinutesBetweenSurveys: 1
 
+# Links bleiben im Test im Chat stehen, damit man alles nachvollziehen kann.
 linkDeletionSettings:
   deleteSubscriptionSetupMessages: false
 
   start_DeleteLinkAtSubscriptionDeadline: false
-  start_DeleteLinkTimer: true
+  start_DeleteLinkTimer: false
   start_DeleteDelayMinutes: 240
 
   daily_DeleteLinkAtNewLink: false
-  daily_DeleteLinkTimer: true
+  daily_DeleteLinkTimer: false
   daily_DeleteDelayMinutes: 30
 
   end_DeleteLinkAtNewLink: false
-  end_DeleteLinkTimer: true
+  end_DeleteLinkTimer: false
   end_DeleteDelayMinutes: 30
 
+# Keine zufällige Verschiebung, damit die Zeiten oben genau stimmen.
 randomTimeShiftSettings:
   daily_RandomTimeShiftMinutes: 0
   end_RandomTimeShiftMinutes: 0
 
 endSurveyReminderEnabled: true
-endSurveyReminderDelayHours: 1
+endSurveyReminderDelayHours: 1         # Erinnerung 1 Stunde nach dem End-Link
+
+# Jede Person bekommt eine zufällige, feste 5-stellige Nummer (z. B. 04711),
+# die in allen ihren Links an der Stelle von {participant} steht.
+useParticipantNumbers: true
+participantNumberDigits: 5
 
 urls:
   start_url:
-    - "https://example.com/start-a"
-    - "https://example.com/start-b"
+    - "https://example.com/start?id={participant}"
 
   daily_url:
-    - "https://example.com/daily-a"
-    - "https://example.com/daily-b"
+    - "https://example.com/daily?id={participant}"
 
   end_url:
-    - ["https://example.com/end-a"]
-    - ["https://example.com/end-b"]
+    - "https://example.com/end?id={participant}"
 
   end_url_distribution: "NONE"
 
 texts:
-  welcome: "Welcome to the survey bot."
+  welcome: "Willkommen beim Test des Umfrage-Bots! Sende /subscribe, um teilzunehmen."
 
-  subscribe: "You will get now reminders for the actual survey. Please fill out the start survey."
-  subscribe_early: "Sorry, the survey has not started yet."
-  subscribe_late: "Sorry, the survey has already started."
-  subscribe_already: "Sorry, you are already subscribed."
-  subscribe_max_participants: "Sorry, the maximum number of participants has been reached."
+  subscribe: "Danke, du bist angemeldet! Bitte fülle zuerst die Start-Umfrage aus. In den nächsten Minuten bekommst du weitere Umfrage-Links."
+  subscribe_early: "Die Anmeldung ist noch nicht geöffnet."
+  subscribe_late: "Die Anmeldung ist bereits geschlossen."
+  subscribe_already: "Du bist bereits angemeldet."
+  subscribe_max_participants: "Leider sind keine Plätze mehr frei."
 
-  subscribe_wakeup_time: "Please tell me your wakeup time in the format"
-  subscribe_condition: "Please enter your condition number"
-  subscribe_timezone: "Please tell me your current date and time in the format"
+  subscribe_wakeup_time: "Bitte gib für diesen Test die AKTUELLE Uhrzeit ein, so als wärst du gerade aufgewacht. Format"
+  subscribe_condition: "Bitte gib deine Bedingungsnummer ein"
+  subscribe_timezone: "Bitte gib dein aktuelles Datum und deine aktuelle Uhrzeit ein. Format"
 
-  unsubscribe: "You will get no longer reminder for actual surveys."
+  unsubscribe: "Du bist abgemeldet und bekommst keine Umfragen mehr."
 
-  daily_reminder: "Hi there, it is time for a daily survey."
-  end_reminder: "Hi, it is time for the end survey."
+  daily_reminder: "Zeit für eine kurze Tages-Umfrage!"
+  end_reminder: "Zeit für die End-Umfrage!"
 
-  survey_reply: "Here is your survey link."
-  survey_not_subscribed: "You are not subscribed yet. Please send /subscribe first."
+  survey_reply: "Hier ist dein Link zur Tages-Umfrage."
+  survey_not_subscribed: "Du bist noch nicht angemeldet. Bitte sende zuerst /subscribe."
 
-  endSurveyReminder: "Hi, have you already participated the end survey?"
-  endSurveyReminderYes: "Yes"
-  endSurveyReminderNo: "No"
+  endSurveyReminder: "Hast du die End-Umfrage schon ausgefüllt?"
+  endSurveyReminderYes: "Ja"
+  endSurveyReminderNo: "Nein"
 
 help:
   helpEnabled: true
-  help_text: "Here are all available commands:\n/subscribe - activates the reminder service\n/unsubscribe - deactivates the reminder service"
-  surveyCommandHelp: "\n/survey - send you an daily survey link"
+  help_text: "Verfügbare Befehle:\n/subscribe - zur Studie anmelden\n/unsubscribe - von der Studie abmelden"
+  surveyCommandHelp: "\n/survey - Link zur Tages-Umfrage anfordern"
