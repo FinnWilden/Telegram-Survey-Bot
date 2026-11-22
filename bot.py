@@ -32,6 +32,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import yaml
 
 from rich.console import Console
+from rich.highlighter import NullHighlighter
 from rich.logging import RichHandler
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.error import BadRequest, Forbidden, InvalidToken, NetworkError, TelegramError
@@ -72,7 +73,9 @@ from bot_utils.logging_strings import *
 
 console = Console()
 # RichHandler already renders time and level, so the console only needs the message.
-console_handler = RichHandler(console=console, show_path=False)
+# NullHighlighter: Rich would otherwise colour every number and date part inside the
+# messages (e.g. job ids like 2026-11-22-20:17DAILY) in a different colour.
+console_handler = RichHandler(console=console, show_path=False, highlighter=NullHighlighter())
 console_handler.setFormatter(logging.Formatter("%(message)s"))
 file_handler = logging.FileHandler("log/log_{}.log".format(datetime.now().strftime("%Y%m%d-%H%M%S")))
 for log_handler in (console_handler, file_handler):

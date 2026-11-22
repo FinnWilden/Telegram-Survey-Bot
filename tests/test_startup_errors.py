@@ -290,3 +290,9 @@ def test_main_strips_spaces_around_a_valid_token(run_main):
     run_main(token="  " + SECRET_TOKEN + "  ")
 
     assert bot.config_handler.config.api_token == SECRET_TOKEN
+
+
+def test_console_log_messages_are_not_colour_highlighted():
+    from rich.highlighter import NullHighlighter
+
+    assert isinstance(bot.console_handler.highlighter, NullHighlighter)
