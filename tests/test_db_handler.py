@@ -274,6 +274,7 @@ def test_participant_history_and_outbound_messages_are_persistent(db_handler, mo
     monkeypatch.setattr(db_handler, "_timestamp_now", lambda: next(timestamps))
 
     db_handler.insert_time_offset(123, -3600)
+    db_handler.insert_new_subscriber_entries(123, [datetime(2099, 1, 1, 9, 0)], SurveyType.DAILY, 1)
     db_handler.register_participant(123, 2)
     db_handler.record_outbound_message(123, 10, "SUBSCRIBE")
     db_handler.register_participant(123, 1, "07:30")
@@ -285,6 +286,8 @@ def test_participant_history_and_outbound_messages_are_persistent(db_handler, mo
     assert summary == {
         "total_participants": 1,
         "active_participants": 1,
+        "finished_participants": 0,
+        "unsubscribed_participants": 0,
         "first_registration": "2026-11-11T10:00:00+01:00",
         "last_registration": "2026-11-11T10:05:00+01:00",
         "message_counts": {"DAILY": 1, "SUBSCRIBE": 1},
@@ -294,6 +297,7 @@ def test_participant_history_and_outbound_messages_are_persistent(db_handler, mo
         "first_registered_at": "2026-11-11T10:00:00+01:00",
         "last_registered_at": "2026-11-11T10:05:00+01:00",
         "is_active": True,
+        "status": "active",
         "condition": 1,
         "wakeup_time": "07:30",
         "time_offset": -3600,
@@ -491,3 +495,69 @@ def test_participant_overview_contains_participant_number(db_handler):
     db_handler.register_participant(123, 0)
 
     assert db_handler.get_participant_overview()[0]["participant_number"] == number
+
+
+# ---------------------------------------------------------------------------
+# Participant status: active / finished / unsubscribed
+# ---------------------------------------------------------------------------
+
+
+def subscribe(db_handler, chat_id, *dates):
+    db_handler.insert_new_subscriber_entries(chat_id, list(dates), SurveyType.DAILY, 0)
+    db_handler.register_participant(chat_id, 0)
+
+
+def status_of(db_handler, chat_id):
+    return {p["chat_id"]: p["status"] for p in db_handler.get_participant_overview()}[chat_id]
+
+
+def test_participant_with_survey_dates_ahead_is_active(db_handler):
+    subscribe(db_handler, 1, datetime(2020, 1, 1, 9, 0), datetime(2099, 1, 1, 9, 0))
+
+    assert status_of(db_handler, 1) == "active"
+
+
+def test_participant_whose_dates_are_all_over_is_finished_but_still_subscribed(db_handler):
+    subscribe(db_handler, 1, datetime(2020, 1, 1, 9, 0), datetime(2020, 1, 2, 9, 0))
+
+    assert status_of(db_handler, 1) == "finished"
+    # finished participants cannot subscribe a second time
+    assert db_handler.is_already_subscribed(1) is True
+
+
+def test_pending_end_reminder_keeps_a_participant_active(db_handler):
+    subscribe(db_handler, 1, datetime(2020, 1, 1, 9, 0))
+    db_handler.insert_end_reminder_entries_from_list(SurveyType.END, [(1, 0, 0)], "2099-01-01-10:00")
+
+    assert status_of(db_handler, 1) == "active"
+
+
+def test_unsubscribed_participant_is_unsubscribed(db_handler):
+    subscribe(db_handler, 1, datetime(2099, 1, 1, 9, 0))
+    db_handler.remove_subscriber(1)
+
+    assert status_of(db_handler, 1) == "unsubscribed"
+
+
+def test_participant_becomes_finished_once_the_last_date_has_passed(db_handler, monkeypatch):
+    subscribe(db_handler, 1, datetime(2030, 6, 1, 9, 0))
+
+    monkeypatch.setattr(db_handler, "_survey_date_now", lambda: "2030-06-01-08:59")
+    assert status_of(db_handler, 1) == "active"
+    monkeypatch.setattr(db_handler, "_survey_date_now", lambda: "2030-06-01-09:00")
+    assert status_of(db_handler, 1) == "finished"
+
+
+def test_summary_counts_active_finished_and_unsubscribed(db_handler):
+    subscribe(db_handler, 1, datetime(2099, 1, 1, 9, 0))
+    subscribe(db_handler, 2, datetime(2099, 1, 1, 9, 0))
+    subscribe(db_handler, 3, datetime(2020, 1, 1, 9, 0))
+    subscribe(db_handler, 4, datetime(2099, 1, 1, 9, 0))
+    db_handler.remove_subscriber(4)
+
+    summary = db_handler.get_dashboard_summary()
+
+    assert summary["total_participants"] == 4
+    assert summary["active_participants"] == 2
+    assert summary["finished_participants"] == 1
+    assert summary["unsubscribed_participants"] == 1

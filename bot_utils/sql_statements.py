@@ -298,10 +298,23 @@ INSERT INTO outbound_messages (chat_id, message_id, message_type, sent_at)
 VALUES (?, ?, ?, ?)
 """
 
-SELECT_PARTICIPANT_SUMMARY = """
+# True while a participant still has a survey or end reminder date after the given time
+# (parameter: "%Y-%m-%d-%H:%M", the format of subscribers.date, which sorts like a date).
+HAS_OPEN_SURVEY_DATES = """
+EXISTS (
+    SELECT 1
+    FROM subscribers
+    WHERE subscribers.chat_id=participants.chat_id
+    AND subscribers.date>?
+)
+"""
+
+SELECT_PARTICIPANT_SUMMARY = f"""
 SELECT
     COUNT(*) AS total_participants,
-    COALESCE(SUM(is_active), 0) AS active_participants,
+    COALESCE(SUM(is_active AND {HAS_OPEN_SURVEY_DATES}), 0) AS active_participants,
+    COALESCE(SUM(is_active AND NOT {HAS_OPEN_SURVEY_DATES}), 0) AS finished_participants,
+    COALESCE(SUM(NOT is_active), 0) AS unsubscribed_participants,
     MIN(first_registered_at) AS first_registration,
     MAX(last_registered_at) AS last_registration
 FROM participants
@@ -313,12 +326,13 @@ FROM outbound_messages
 GROUP BY message_type
 """
 
-SELECT_PARTICIPANT_OVERVIEW = """
+SELECT_PARTICIPANT_OVERVIEW = f"""
 SELECT
     participants.chat_id,
     participants.first_registered_at,
     participants.last_registered_at,
     participants.is_active,
+    {HAS_OPEN_SURVEY_DATES} AS has_open_survey_dates,
     participants.condition,
     participants.wakeup_time,
     offsets.offset AS time_offset,

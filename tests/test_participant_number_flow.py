@@ -392,3 +392,23 @@ def test_dashboard_without_participant_numbers_has_no_number_fields(study):
 
     assert "Nummern" not in output
     assert "Nr." not in output
+
+
+@pytest.mark.asyncio
+async def test_participant_is_finished_after_the_last_survey_and_cannot_subscribe_again(study, monkeypatch):
+    await study.subscribe(101)
+    status = {p["chat_id"]: p["status"] for p in study.db_handler.get_participant_overview()}
+    assert status[101] == "active"
+
+    await study.send_daily()
+    await study.send_end()
+    # time passes beyond the end survey
+    monkeypatch.setattr(study.db_handler, "_survey_date_now", lambda: study.end_date + "-18:01")
+
+    status = {p["chat_id"]: p["status"] for p in study.db_handler.get_participant_overview()}
+    assert status[101] == "finished"
+    assert study.db_handler.get_dashboard_summary()["finished_participants"] == 1
+
+    study.telegram.clear()
+    assert await study.subscribe(101) == ConversationHandler.END
+    assert [message.text for message in study.telegram.sent] == ["Already subscribed"]

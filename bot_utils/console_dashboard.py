@@ -59,6 +59,13 @@ MESSAGE_TYPE_LABELS = {
     "MESSAGE": "Bot-Nachricht",
 }
 
+# Status of a participant -> (label, style) in the participant view
+PARTICIPANT_STATUS_LABELS = {
+    "active": ("Aktiv", "green"),
+    "finished": ("Beendet", "cyan"),
+    "unsubscribed": ("Abgemeldet", "dim"),
+}
+
 VIEW_COMMANDS = {
     "d": "dashboard",
     "p": "participants",
@@ -276,8 +283,14 @@ class ConsoleDashboard:
         table.add_row(
             "Teilnehmende gesamt",
             str(summary["total_participants"]),
-            "Aktiv angemeldet",
+            "Aktiv",
             str(summary["active_participants"]),
+        )
+        table.add_row(
+            "Beendet",
+            str(summary["finished_participants"]),
+            "Abgemeldet",
+            str(summary["unsubscribed_participants"]),
         )
         table.add_row(
             "Erste Anmeldung",
@@ -327,7 +340,7 @@ class ConsoleDashboard:
             ),
             ("Erste Anm.", "left", lambda p: self._format_short_timestamp(p["first_registered_at"])),
             ("Letzte Anm.", "left", lambda p: self._format_short_timestamp(p["last_registered_at"])),
-            ("Status", "left", lambda p: Text("Aktiv", style="green") if p["is_active"] else Text("Abgemeldet", style="dim")),
+            ("Status", "left", lambda p: Text(*PARTICIPANT_STATUS_LABELS[p["status"]])),
             ("Kond.", "right", lambda p: self._format_optional(p["condition"])),
             ("Weckzeit", "left", lambda p: self._format_optional(p["wakeup_time"])),
             ("Versatz", "right", lambda p: self._format_offset(p["time_offset"])),

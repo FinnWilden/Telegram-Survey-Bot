@@ -43,6 +43,8 @@ FREE_NUMBER_ENUMERATION_LIMIT = 100_000
 class DashboardSummary(TypedDict):
     total_participants: int
     active_participants: int
+    finished_participants: int
+    unsubscribed_participants: int
     first_registration: str | None
     last_registration: str | None
     message_counts: dict[str, int]
@@ -53,6 +55,7 @@ class ParticipantOverview(TypedDict):
     first_registered_at: str | None
     last_registered_at: str | None
     is_active: bool
+    status: str
     condition: int | None
     wakeup_time: str | None
     time_offset: int | None
@@ -379,6 +382,26 @@ class DbHandler:
     def _timestamp_now() -> str:
         return datetime.now().astimezone().isoformat(timespec="seconds")
 
+    @staticmethod
+    def _survey_date_now() -> str:
+        """
+        The current time in the format of the stored survey dates.
+        """
+        return datetime.now().strftime("%Y-%m-%d-%H:%M")
+
+    @staticmethod
+    def _participant_status(is_active: bool, has_open_survey_dates: bool) -> str:
+        """
+        "active": subscribed and still has survey dates ahead,
+        "finished": subscribed, but all survey dates (incl. end reminders) are over,
+        "unsubscribed": sent /unsubscribe or was removed.
+
+        Finished participants still count as subscribed, so they cannot subscribe again.
+        """
+        if not is_active:
+            return "unsubscribed"
+        return "active" if has_open_survey_dates else "finished"
+
     def register_participant(
         self,
         chat_id: int,
@@ -502,12 +525,15 @@ class DbHandler:
         Return persistent participant and outbound-message counts for the console.
         """
         with self.create_connection() as connection:
-            summary_row = connection.execute(SELECT_PARTICIPANT_SUMMARY).fetchone()
+            now = self._survey_date_now()
+            summary_row = connection.execute(SELECT_PARTICIPANT_SUMMARY, (now, now)).fetchone()
             message_rows = connection.execute(SELECT_OUTBOUND_MESSAGE_COUNTS).fetchall()
 
         return {
             "total_participants": summary_row["total_participants"],
             "active_participants": summary_row["active_participants"],
+            "finished_participants": summary_row["finished_participants"],
+            "unsubscribed_participants": summary_row["unsubscribed_participants"],
             "first_registration": summary_row["first_registration"],
             "last_registration": summary_row["last_registration"],
             "message_counts": {
@@ -521,7 +547,7 @@ class DbHandler:
         Return all known participants with their message totals and latest delivery.
         """
         with self.create_connection() as connection:
-            rows = connection.execute(SELECT_PARTICIPANT_OVERVIEW).fetchall()
+            rows = connection.execute(SELECT_PARTICIPANT_OVERVIEW, (self._survey_date_now(),)).fetchall()
 
         return [
             {
@@ -529,6 +555,7 @@ class DbHandler:
                 "first_registered_at": row["first_registered_at"],
                 "last_registered_at": row["last_registered_at"],
                 "is_active": bool(row["is_active"]),
+                "status": self._participant_status(bool(row["is_active"]), bool(row["has_open_survey_dates"])),
                 "condition": row["condition"],
                 "wakeup_time": row["wakeup_time"],
                 "time_offset": row["time_offset"],
