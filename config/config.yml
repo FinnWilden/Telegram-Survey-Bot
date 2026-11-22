@@ -58,6 +58,22 @@ randomTimeShiftSettings:
 endSurveyReminderEnabled: true
 endSurveyReminderDelayHours: 1
 
+# Participant numbers: instead of writing one full link per participant,
+# enter only the fixed part of each link (the "stem") under 'urls'.
+# Every participant gets a random number from minNumber..maxNumber that no
+# other participant has. It is stored permanently and completes all of that
+# participant's links (start, daily and end), also after re-subscribing.
+#   "https://survey.example/start?id="              -> .../start?id=42
+#   "https://survey.example/s?id={participant}&x=1" -> .../s?id=42&x=1
+# Without '{participant}' the number is appended to the end of the stem.
+# padToDigits adds leading zeros, e.g. 3 -> 042 (0 = no leading zeros).
+# When all numbers are taken, new subscriptions get 'subscribe_max_participants'.
+useParticipantNumbers: false
+participantNumberSettings:
+  minNumber: 1
+  maxNumber: 500
+  padToDigits: 0
+
 urls:
   start_url:
     - "https://example.com/start-a"
@@ -68,8 +84,8 @@ urls:
     - "https://example.com/daily-b"
 
   end_url:
-    - ["https://example.com/end-a"]
-    - ["https://example.com/end-b"]
+    - ["https://example.com/end-a-day1", "https://example.com/end-a-day2"]
+    - ["https://example.com/end-b-day1", "https://example.com/end-b-day2"]
 
   end_url_distribution: "DAY"
 

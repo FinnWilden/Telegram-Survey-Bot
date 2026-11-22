@@ -25,6 +25,11 @@ from datetime import datetime, time
 from bot_utils.bot_enums import EndUrlDistribution
 
 
+# Placeholder inside a url stem that is replaced by the participant number.
+# Without it, the number is appended to the end of the stem.
+PARTICIPANT_PLACEHOLDER = "{participant}"
+
+
 @dataclass
 class DayCalculationSettings:
     daily_SurveyDays: list[int]
@@ -59,6 +64,16 @@ class LinkDeletionSettings:
 class RandomTimeShiftSettings:
     daily_RandomTimeShiftMinutes: int
     end_RandomTimeShiftMinutes: int
+
+
+@dataclass
+class ParticipantNumberSettings:
+    """
+    Range and formatting of the random participant number appended to every survey link.
+    """
+    minNumber: int
+    maxNumber: int
+    padToDigits: int = 0
 
 
 @dataclass
@@ -127,6 +142,8 @@ class Config:
     surveyCommandEnabled: bool
     texts: Texts | dict
     help: Help | dict
+    useParticipantNumbers: bool = False
+    participantNumberSettings: ParticipantNumberSettings | dict | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.subscription_start_date, str):
@@ -175,6 +192,9 @@ class Config:
 
         if isinstance(self.urls, dict):
             self.urls = Urls(**self.urls)
+
+        if isinstance(self.participantNumberSettings, dict):
+            self.participantNumberSettings = ParticipantNumberSettings(**self.participantNumberSettings)
 
         if isinstance(self.texts, dict):
             self.texts = Texts(**self.texts)

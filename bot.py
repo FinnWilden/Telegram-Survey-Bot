@@ -175,7 +175,17 @@ async def post_init(app: Application) -> None:
     application = app
     application_loop = asyncio.get_running_loop()
 
-    dashboard = ConsoleDashboard(db_handler, console)
+    dashboard = ConsoleDashboard(
+        db_handler,
+        console,
+        participant_number_range=(
+            (
+                config_handler.config.participantNumberSettings.minNumber,
+                config_handler.config.participantNumberSettings.maxNumber,
+            )
+            if config_handler.config.useParticipantNumbers else None
+        ),
+    )
     if dashboard.is_available(console):
         dashboard_stop_event = asyncio.Event()
         dashboard_task = asyncio.create_task(
@@ -282,6 +292,43 @@ def delete_message(chat_id: int, message_id: int) -> None:
 # -----------------------------------------------------------------------------
 
 
+class ParticipantNumberUnavailable(LookupError):
+    """
+    Raised when a participant needs a number for a link but the configured range is exhausted.
+    """
+
+
+def assign_participant_number(chat_id: int) -> int | None:
+    """
+    Return the participant's permanent number, drawing a new random one if needed.
+
+    :return: The number, or None when every number of the configured range is taken
+    """
+    settings = config_handler.config.participantNumberSettings
+    number = db_handler.assign_participant_number(chat_id, settings.minNumber, settings.maxNumber)
+    if number is not None:
+        logging.info(PARTICIPANT_NUMBER_ASSIGNED.format(chat_id, number))
+    return number
+
+
+def get_link_participant_number(chat_id: int) -> int | None:
+    """
+    Return the number that completes this participant's survey links, or None when the
+    feature is disabled.
+
+    Participants who subscribed before the feature was enabled get their number on first use.
+    """
+    if not config_handler.config.useParticipantNumbers:
+        return None
+
+    number = db_handler.get_participant_number(chat_id)
+    if number is None:
+        number = assign_participant_number(chat_id)
+    if number is None:
+        raise ParticipantNumberUnavailable(f"No free participant number left for chat_id={chat_id}")
+    return number
+
+
 async def send_tracked_message(
     bot: Bot,
     chat_id: int,
@@ -348,6 +395,15 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             chat_id,
             SUBSCRIPTION_ALREADY_SUBSCRIBED,
             config_handler.config.texts.subscribe_already,
+        )
+        return ConversationHandler.END
+
+    if config_handler.config.useParticipantNumbers and assign_participant_number(chat_id) is None:
+        await subscribe_rejected(
+            context,
+            chat_id,
+            SUBSCRIPTION_PARTICIPANT_NUMBERS_FULL,
+            config_handler.config.texts.subscribe_max_participants,
         )
         return ConversationHandler.END
 
@@ -534,7 +590,12 @@ async def send_subscribe_message(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     Sends the start survey link to a new subscriber.
     """
     logging.info(SUBSCRIPTION_FINISHED.format(chat_id))
-    markup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.SUBSCRIBE, condition)
+    markup = KeyboardBuilder.generate_link_markup(
+        config_handler,
+        SurveyType.SUBSCRIBE,
+        condition,
+        participant_number=get_link_participant_number(chat_id),
+    )
 
     db_handler.register_participant(chat_id, condition, context.user_data.pop("wakeup_time", None))
     msg = await send_tracked_message(
@@ -634,6 +695,7 @@ async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         config_handler,
         SurveyType.DAILY,
         condition,
+        participant_number=get_link_participant_number(chat_id),
     )
 
     logging.info(SEND_SURVEY.format(SurveyType.DAILY.name, chat_id))
@@ -672,7 +734,13 @@ async def handle_end_survey_reminder_callback(update: Update, context: ContextTy
 
     if callback_code[0] == ER_NO:
         condition, end_index = db_handler.get_condition_and_end_index(chat_id, callback_code[1])
-        markup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.END, condition, end_index)
+        markup = KeyboardBuilder.generate_link_markup(
+            config_handler,
+            SurveyType.END,
+            condition,
+            end_index,
+            get_link_participant_number(chat_id),
+        )
 
         msg = await send_tracked_message(
             context.bot,
@@ -724,12 +792,18 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
     msg_text: str = config_handler.get_message(survey_type)
 
     for chat_id, condition, end_index in subscriber_information:
-        markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(
-            config_handler,
-            survey_type,
-            condition,
-            end_index,
-        )
+        try:
+            markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(
+                config_handler,
+                survey_type,
+                condition,
+                end_index,
+                get_link_participant_number(chat_id),
+            )
+        except ParticipantNumberUnavailable as err:
+            logging.error("Can't send survey to %d: %s", chat_id, err)
+            continue
+
         try:
             logging.info(SEND_SURVEY.format(survey_type.name, chat_id))
             msg = await send_tracked_message(

@@ -27,6 +27,7 @@ The project is written in Python and supports Windows, Linux, and macOS.
   * End surveys
 * Flexible end survey link distribution strategies
 * Participant condition assignment and randomization
+* Random, permanent participant numbers that complete survey link stems
 * Optional timezone support
 * Automatic survey reminder scheduling
 * Automatic deletion of expired survey links
@@ -96,8 +97,8 @@ single key presses (no Enter needed):
 
 | Key | View |
 |-----|------|
-| `d` | **Dashboard**: participant totals, active subscriptions, first and latest registration, and counts of sent messages (start, daily and end links, other messages) |
-| `p` | **Participants**: one row per participant with Telegram chat ID, first and latest registration, status (active/unsubscribed), the answers given during subscription (condition, wake-up time, time offset to the server), number of messages received and the latest delivery |
+| `d` | **Dashboard**: participant totals, active subscriptions, first and latest registration, and counts of sent messages (start, daily and end links, other messages); with participant numbers also how many numbers are assigned and still free |
+| `p` | **Participants**: one row per participant with Telegram chat ID, participant number (when enabled), first and latest registration, status (active/unsubscribed), the answers given during subscription (condition, wake-up time, time offset to the server), number of messages received and the latest delivery |
 | `v` | **Delivery history**: the 100 most recent messages sent by the bot with time, chat ID and message type |
 | `n` / `b` | Next / previous page in the participant and delivery views |
 
@@ -113,6 +114,54 @@ conditions are recovered from the subscriber table, but historical
 registration and message-delivery times cannot be; those are shown as
 unknown. The database contains pseudonymous Telegram IDs, study conditions
 and delivery metadata, so protect it accordingly.
+
+---
+
+# Participant numbers in survey links
+
+Survey tools often identify participants by a number in the link, e.g.
+`https://survey.example/start?id=1`, `...?id=2`, and so on. Instead of listing
+one full link per participant, you can enter only the fixed part of each link
+(the *stem*) and let the bot add a participant number:
+
+```yaml
+useParticipantNumbers: true
+participantNumberSettings:
+  minNumber: 1      # smallest number that may be drawn
+  maxNumber: 500    # largest number that may be drawn
+  padToDigits: 3    # optional leading zeros: 7 -> 007 (0 = none)
+
+urls:
+  start_url:
+    - "https://survey.example/start?group=a&id="
+    - "https://survey.example/start?group=b&id="
+  daily_url:
+    - "https://survey.example/daily?id={participant}&lang=de"
+    - "https://survey.example/daily?id={participant}&lang=en"
+  end_url:
+    - ["https://survey.example/end-a/"]
+    - ["https://survey.example/end-b/"]
+  end_url_distribution: "NONE"
+```
+
+* Each participant gets a **random number** from `minNumber`..`maxNumber`
+  when they first send `/subscribe`. No two participants get the same number.
+* The number is **stored permanently** and used for **all** of that
+  participant's links: start, daily, end, `/survey` and the end-survey
+  reminder. It stays the same after unsubscribing and subscribing again and
+  across bot restarts.
+* The number replaces `{participant}` in a stem; stems without the
+  placeholder get the number appended at the end. Keep the quotes around
+  stems in YAML.
+* The `urls` section keeps its structure: one stem per condition (and per end
+  link), so different surveys and conditions still have different stems.
+* When every number of the range is taken, new subscriptions are rejected
+  with the `subscribe_max_participants` text. Participants who already have a
+  number can still re-subscribe.
+* Participants who subscribed before the option was enabled get their number
+  with their next link.
+* With `useParticipantNumbers: false` (the default) the links are used exactly
+  as written, as before. Configs without these keys keep working unchanged.
 
 ---
 

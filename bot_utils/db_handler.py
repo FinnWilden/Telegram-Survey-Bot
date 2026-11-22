@@ -20,6 +20,7 @@ along with Telegram Survey Bot.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
 import logging
+import random
 import sqlite3
 
 from datetime import datetime
@@ -32,6 +33,10 @@ from bot_utils.sql_statements import *
 from bot_utils.logging_strings import *
 
 DB_FILE = Path("db") / "userIdDb.db"
+
+# Up to this range size the free participant numbers are listed and one is chosen;
+# for larger ranges random numbers are drawn until a free one is found.
+FREE_NUMBER_ENUMERATION_LIMIT = 100_000
 
 
 class DashboardSummary(TypedDict):
@@ -50,6 +55,7 @@ class ParticipantOverview(TypedDict):
     condition: int | None
     wakeup_time: str | None
     time_offset: int | None
+    participant_number: int | None
     message_count: int
     last_message_at: str | None
 
@@ -82,6 +88,7 @@ class DbHandler:
             self.create_table(connection, CREATE_TABLE_CONDITIONS)
             self.create_table(connection, CREATE_TABLE_PARTICIPANTS)
             self.create_table(connection, CREATE_TABLE_OUTBOUND_MESSAGES)
+            self.create_table(connection, CREATE_TABLE_PARTICIPANT_NUMBERS)
             self.create_table(connection, CREATE_INDEX_OUTBOUND_MESSAGES_CHAT_ID)
             self._migrate_participants_table(connection)
             connection.execute(BACKFILL_PARTICIPANTS)
@@ -392,6 +399,81 @@ class DbHandler:
             )
             connection.commit()
 
+    def get_participant_number(self, chat_id: int) -> int | None:
+        """
+        Return the permanent participant number of a chat id, or None if none was assigned yet.
+        """
+        with self.create_connection() as connection:
+            row = connection.execute(SELECT_PARTICIPANT_NUMBER, (chat_id,)).fetchone()
+
+        return None if row is None else row["number"]
+
+    def count_participant_numbers(self, min_number: int, max_number: int) -> int:
+        """
+        Return how many numbers of [min_number, max_number] are already assigned.
+        """
+        with self.create_connection() as connection:
+            row = connection.execute(COUNT_PARTICIPANT_NUMBERS_IN_RANGE, (min_number, max_number)).fetchone()
+
+        return row["used_count"]
+
+    def assign_participant_number(
+        self,
+        chat_id: int,
+        min_number: int,
+        max_number: int,
+        rng: random.Random | None = None,
+    ) -> int | None:
+        """
+        Return the participant's permanent number, drawing a new one if necessary.
+
+        A new number is chosen at random from [min_number, max_number] among the
+        numbers no other participant has. Numbers are never released, so a
+        participant keeps the same number after unsubscribing and subscribing again.
+
+        :return: The participant number, or None when every number in the range is taken
+        """
+        rng = rng or random
+        with self.create_connection() as connection:
+            # Lock the database so two subscriptions cannot draw the same number.
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(SELECT_PARTICIPANT_NUMBER, (chat_id,)).fetchone()
+            if row is not None:
+                return row["number"]
+
+            used_numbers = {
+                used_row["number"]
+                for used_row in connection.execute(SELECT_PARTICIPANT_NUMBERS_IN_RANGE, (min_number, max_number))
+            }
+            number = self._draw_free_number(used_numbers, min_number, max_number, rng)
+            if number is None:
+                return None
+
+            connection.execute(INSERT_PARTICIPANT_NUMBER, (chat_id, number, self._timestamp_now()))
+            connection.commit()
+
+        return number
+
+    @staticmethod
+    def _draw_free_number(
+        used_numbers: set[int],
+        min_number: int,
+        max_number: int,
+        rng: random.Random,
+    ) -> int | None:
+        range_size = max_number - min_number + 1
+        if len(used_numbers) >= range_size:
+            return None
+
+        if range_size <= FREE_NUMBER_ENUMERATION_LIMIT:
+            free_numbers = [number for number in range(min_number, max_number + 1) if number not in used_numbers]
+            return rng.choice(free_numbers)
+
+        while True:
+            number = rng.randint(min_number, max_number)
+            if number not in used_numbers:
+                return number
+
     def record_outbound_message(self, chat_id: int, message_id: int, message_type: str) -> None:
         """
         Keep a permanent record of a successfully sent bot message.
@@ -438,6 +520,7 @@ class DbHandler:
                 "condition": row["condition"],
                 "wakeup_time": row["wakeup_time"],
                 "time_offset": row["time_offset"],
+                "participant_number": row["participant_number"],
                 "message_count": row["message_count"],
                 "last_message_at": row["last_message_at"],
             }

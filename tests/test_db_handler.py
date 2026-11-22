@@ -1,4 +1,6 @@
+import random
 import sqlite3
+import threading
 from datetime import datetime
 
 import pytest
@@ -295,6 +297,7 @@ def test_participant_history_and_outbound_messages_are_persistent(db_handler, mo
         "condition": 1,
         "wakeup_time": "07:30",
         "time_offset": -3600,
+        "participant_number": None,
         "message_count": 2,
         "last_message_at": "2026-11-11T10:10:00+01:00",
     }
@@ -360,3 +363,104 @@ def test_migrates_participants_table_created_without_parameter_columns(tmp_path,
     assert participants[789]["first_registered_at"] == "2026-11-01T08:00:00+01:00"
     assert participants[790]["condition"] == 3
     assert participants[790]["wakeup_time"] == "06:45"
+
+
+# ---------------------------------------------------------------------------
+# Participant numbers
+# ---------------------------------------------------------------------------
+
+
+def test_assign_participant_number_gives_every_participant_a_different_number(db_handler):
+    numbers = [db_handler.assign_participant_number(chat_id, 1, 20) for chat_id in range(100, 120)]
+
+    assert sorted(numbers) == list(range(1, 21))
+    assert db_handler.assign_participant_number(999, 1, 20) is None
+    assert db_handler.get_participant_number(999) is None
+
+
+def test_assign_participant_number_is_random(db_handler):
+    numbers = [db_handler.assign_participant_number(chat_id, 1, 1000) for chat_id in range(30)]
+
+    # ascending numbers would mean the number is not drawn at random
+    assert numbers != sorted(numbers)
+
+
+def test_assign_participant_number_uses_given_random_source(db_handler):
+    rng = random.Random(42)
+    expected = random.Random(42).choice(list(range(1, 501)))
+
+    assert db_handler.assign_participant_number(123, 1, 500, rng) == expected
+
+
+def test_participant_keeps_number_across_calls_unsubscribe_and_restart(db_handler):
+    number = db_handler.assign_participant_number(123, 1, 1000)
+
+    assert db_handler.assign_participant_number(123, 1, 1000) == number
+    db_handler.remove_subscriber(123)
+    db_handler.delete_all_subscribers()
+    assert db_handler.get_participant_number(123) == number
+
+    restarted_db_handler = DbHandler()
+    assert restarted_db_handler.assign_participant_number(123, 1, 1000) == number
+
+
+def test_existing_number_is_kept_when_range_changes(db_handler):
+    number = db_handler.assign_participant_number(123, 50, 50)
+
+    assert number == 50
+    assert db_handler.assign_participant_number(123, 1, 10) == 50
+
+
+def test_numbers_outside_the_range_do_not_block_it(db_handler):
+    db_handler.assign_participant_number(1, 500, 500)
+
+    assert db_handler.assign_participant_number(2, 1, 1) == 1
+
+
+def test_large_range_draws_without_listing_every_number(db_handler, monkeypatch):
+    monkeypatch.setattr(db_module, "FREE_NUMBER_ENUMERATION_LIMIT", 10)
+    numbers = {db_handler.assign_participant_number(chat_id, 1, 1_000_000_000) for chat_id in range(50)}
+
+    assert len(numbers) == 50
+    assert all(1 <= number <= 1_000_000_000 for number in numbers)
+
+
+def test_large_range_skips_numbers_already_taken(db_handler, monkeypatch):
+    monkeypatch.setattr(db_module, "FREE_NUMBER_ENUMERATION_LIMIT", 1)
+    db_handler.assign_participant_number(1, 7, 7)
+
+    class FirstTakenThenFree:
+        def __init__(self):
+            self.values = iter([7, 7, 8])
+
+        def randint(self, low, high):
+            return next(self.values)
+
+    assert db_handler.assign_participant_number(2, 7, 8, FirstTakenThenFree()) == 8
+
+
+def test_concurrent_assignments_never_share_a_number(db_handler):
+    results = []
+    errors = []
+
+    def assign(chat_id):
+        try:
+            results.append(DbHandler().assign_participant_number(chat_id, 1, 40))
+        except Exception as err:  # reported below
+            errors.append(err)
+
+    threads = [threading.Thread(target=assign, args=(chat_id,)) for chat_id in range(40)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert sorted(results) == list(range(1, 41))
+
+
+def test_participant_overview_contains_participant_number(db_handler):
+    db_handler.assign_participant_number(123, 5, 5)
+    db_handler.register_participant(123, 0)
+
+    assert db_handler.get_participant_overview()[0]["participant_number"] == 5

@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 from bot_utils.bot_enums import SurveyType
-from bot_utils.config import Config
+from bot_utils.config import PARTICIPANT_PLACEHOLDER, Config
 from bot_utils.config_validator import ConfigValidator
 
 
@@ -101,17 +101,40 @@ class ConfigHandler:
         survey_type: SurveyType,
         condition: int,
         end_distribution: int = -1,
+        participant_number: int | None = None,
     ) -> str:
+        """
+        Return the survey link for a condition.
+
+        With 'useParticipantNumbers' the configured url is only a stem and the
+        participant's number is inserted at the placeholder or appended to it.
+        """
         if survey_type == SurveyType.SUBSCRIBE:
-            return self.config.urls.start_url[condition]
+            url = self.config.urls.start_url[condition]
+        elif survey_type == SurveyType.DAILY:
+            url = self.config.urls.daily_url[condition]
+        elif survey_type == SurveyType.END:
+            url = self.config.urls.end_url[condition][end_distribution]
+        else:
+            raise ValueError(f"Unknown survey type: {survey_type}")
 
-        if survey_type == SurveyType.DAILY:
-            return self.config.urls.daily_url[condition]
+        if not self.config.useParticipantNumbers:
+            return url
 
-        if survey_type == SurveyType.END:
-            return self.config.urls.end_url[condition][end_distribution]
+        if participant_number is None:
+            raise ValueError("A participant number is required when 'useParticipantNumbers' is enabled")
 
-        raise ValueError(f"Unknown survey type: {survey_type}")
+        return self.build_participant_url(url, participant_number)
+
+    def format_participant_number(self, participant_number: int) -> str:
+        settings = self.config.participantNumberSettings
+        return str(participant_number).zfill(settings.padToDigits)
+
+    def build_participant_url(self, url_stem: str, participant_number: int) -> str:
+        number = self.format_participant_number(participant_number)
+        if PARTICIPANT_PLACEHOLDER in url_stem:
+            return url_stem.replace(PARTICIPANT_PLACEHOLDER, number)
+        return url_stem + number
 
     def get_message(self, survey_type: SurveyType) -> str:
         if survey_type == SurveyType.DAILY:
