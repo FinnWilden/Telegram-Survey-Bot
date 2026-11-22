@@ -98,3 +98,15 @@ def config_dict():
 @pytest.fixture
 def config(config_dict):
     return Config(**config_dict())
+
+@pytest.fixture(autouse=True)
+def no_overview_files_from_tests(monkeypatch):
+    """
+    bot.schedule_notifications() sets up the overview export; reset it after each test, so no
+    test writes overview files into the project folder.
+    """
+    import sys
+
+    bot_module = sys.modules.get("bot")
+    if bot_module is not None:
+        monkeypatch.setattr(bot_module, "overview_exporter", None, raising=False)

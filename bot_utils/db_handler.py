@@ -606,6 +606,23 @@ class DbHandler:
             for row in rows
         ]
 
+    def get_outbound_messages(self) -> list[dict]:
+        """
+        Return every sent bot message, oldest first, with the participant number if there is one.
+        """
+        with self.create_connection() as connection:
+            rows = connection.execute(SELECT_ALL_OUTBOUND_MESSAGES).fetchall()
+
+        return [
+            {
+                "sent_at": row["sent_at"],
+                "chat_id": row["chat_id"],
+                "participant_number": row["participant_number"],
+                "message_type": row["message_type"],
+            }
+            for row in rows
+        ]
+
     def get_recent_outbound_messages(self) -> list[OutboundMessageOverview]:
         """
         Return the 100 most recently sent bot messages.
