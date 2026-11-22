@@ -63,35 +63,6 @@ class ScheduleUtil:
         self.db_handler: DbHandler = db_handler
         self.logger: logging = logging.getLogger(__name__)
 
-    def schedule_delete_message(self, exec_function: Callable, delay_minutes: int, *func_args) -> None:
-        """
-        Schedules the deletion of messages, depending on the execution function.
-        The deletion will be scheduled to run after the delay minutes from
-        the time point of the execution of this function.
-
-        :param exec_function: The function, which will delete the messages
-        :param delay_minutes: The delay minutes until execution
-        :param func_args: The arguments for the execution function
-        :return: None
-        """
-        delete_datetime = TimeUtil.get_date_time_in(minutes=delay_minutes)
-        self.schedule_delete_messages(exec_function, delete_datetime, *func_args)
-
-    def schedule_delete_messages(self, exec_function: Callable, run_date: datetime, *func_args) -> None:
-        """
-        Schedules the deletion of messages, depending on the execution function.
-        The deletion will be scheduled to run at the run date.
-
-        :param exec_function: The function, which will delete the messages
-        :param run_date: The date-time to execute the function
-        :param func_args: The arguments for the execution function
-        :return: None
-        """
-        trigger = DateTrigger(run_date=run_date)
-        self.scheduler.add_job(exec_function,
-                               trigger=trigger,
-                               args=func_args)
-
     def schedule_end_survey_reminder(self,
                                      exec_function: Callable,
                                      subscriber_information: list[tuple[int, int, int]]) -> None:

@@ -1,7 +1,7 @@
 import random
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -206,47 +206,10 @@ def test_remove_subscriber_removes_subscriber_messages_and_condition(db_handler)
     db_handler.remove_subscriber(chat_id)
 
     assert db_handler.is_already_subscribed(chat_id) is False
-    assert db_handler.query_and_delete_message_ids([chat_id], SurveyType.DAILY) == []
+    assert db_handler.get_tracked_messages([chat_id], SurveyType.DAILY) == []
 
     with pytest.raises(LookupError):
         db_handler.get_used_condition(chat_id)
-
-
-def test_insert_and_query_and_delete_message_ids(db_handler):
-    db_handler.insert_message_id(111, 10, SurveyType.DAILY)
-    db_handler.insert_message_id(111, 11, SurveyType.DAILY)
-    db_handler.insert_message_id(222, 12, SurveyType.DAILY)
-    db_handler.insert_message_id(111, 13, SurveyType.END)
-
-    result = db_handler.query_and_delete_message_ids(
-        [111],
-        SurveyType.DAILY,
-    )
-
-    assert sorted(result) == [
-        (111, 10),
-        (111, 11),
-    ]
-
-    assert db_handler.query_and_delete_message_ids([111], SurveyType.DAILY) == []
-    assert db_handler.query_and_delete_message_ids([222], SurveyType.DAILY) == [(222, 12)]
-    assert db_handler.query_and_delete_message_ids([111], SurveyType.END) == [(111, 13)]
-
-
-def test_query_and_delete_message_ids_by_type(db_handler):
-    db_handler.insert_message_id(111, 10, SurveyType.DAILY)
-    db_handler.insert_message_id(222, 20, SurveyType.DAILY)
-    db_handler.insert_message_id(333, 30, SurveyType.END)
-
-    result = db_handler.query_and_delete_message_ids_by_type(SurveyType.DAILY)
-
-    assert sorted(result) == [
-        (111, 10),
-        (222, 20),
-    ]
-
-    assert db_handler.query_and_delete_message_ids_by_type(SurveyType.DAILY) == []
-    assert db_handler.query_and_delete_message_ids_by_type(SurveyType.END) == [(333, 30)]
 
 
 def test_insert_and_get_time_offset(db_handler):
@@ -588,3 +551,94 @@ def test_unsubscribe_removes_pending_reminders(db_handler):
     db_handler.remove_subscriber(1)
 
     assert db_handler.query_end_reminders() == {}
+
+
+# ---------------------------------------------------------------------------
+# Remembered messages and planned deletions
+# ---------------------------------------------------------------------------
+
+
+def test_tracked_messages_are_returned_by_chat_and_type(db_handler):
+    sent = datetime(2026, 5, 15, 9, 0, 0)
+    db_handler.insert_message_id(111, 10, SurveyType.DAILY, sent_at=sent)
+    db_handler.insert_message_id(111, 11, SurveyType.DAILY, sent_at=sent)
+    db_handler.insert_message_id(222, 12, SurveyType.DAILY, sent_at=sent)
+    db_handler.insert_message_id(111, 13, SurveyType.END, sent_at=sent)
+    db_handler.insert_message_id(111, 14, "START_LINK", sent_at=sent)
+
+    assert sorted(db_handler.get_tracked_messages([111], SurveyType.DAILY)) == [(111, 10, sent), (111, 11, sent)]
+    assert db_handler.get_tracked_messages([111, 222], SurveyType.END) == [(111, 13, sent)]
+    assert db_handler.get_tracked_messages([111], "START_LINK") == [(111, 14, sent)]
+    # reading does not remove them; only remove_tracked_message does
+    assert len(db_handler.get_tracked_messages([111], SurveyType.DAILY)) == 2
+
+
+def test_due_deletions_include_everything_that_became_due_meanwhile(db_handler):
+    now = datetime(2026, 5, 15, 12, 0, 0)
+    db_handler.insert_message_id(1, 10, SurveyType.DAILY, delete_at=now - timedelta(hours=5))  # due during downtime
+    db_handler.insert_message_id(1, 11, SurveyType.DAILY, delete_at=now)
+    db_handler.insert_message_id(1, 12, SurveyType.DAILY, delete_at=now + timedelta(seconds=1))
+    db_handler.insert_message_id(1, 13, SurveyType.DAILY)  # no timer
+
+    due = db_handler.get_due_message_deletions(now)
+
+    assert [message_id for _, message_id, _ in due] == [10, 11]
+
+
+def test_planned_deletion_survives_a_restart(db_handler):
+    delete_at = datetime(2026, 5, 15, 12, 0, 0)
+    db_handler.insert_message_id(1, 10, SurveyType.END, delete_at=delete_at)
+
+    restarted = DbHandler()
+
+    assert [m for _, m, _ in restarted.get_due_message_deletions(delete_at)] == [10]
+
+
+def test_remove_tracked_message(db_handler):
+    db_handler.insert_message_id(1, 10, SurveyType.DAILY, delete_at=datetime(2020, 1, 1))
+
+    db_handler.remove_tracked_message(1, 10)
+
+    assert db_handler.get_due_message_deletions(datetime(2030, 1, 1)) == []
+    assert db_handler.get_tracked_messages([1], SurveyType.DAILY) == []
+
+
+def test_planned_deletions_are_kept_when_unsubscribing(db_handler):
+    db_handler.insert_message_id(1, 10, SurveyType.DAILY, delete_at=datetime(2026, 5, 15, 12, 0))
+    db_handler.insert_message_id(1, 11, SurveyType.DAILY)  # would only be deleted at the next link
+
+    db_handler.remove_subscriber(1)
+
+    assert [m for _, m, _ in db_handler.get_tracked_messages([1], SurveyType.DAILY)] == [10]
+
+
+def test_schedule_deletion_for_type_only_sets_missing_times(db_handler):
+    deadline = datetime(2026, 5, 20, 20, 0)
+    earlier = datetime(2026, 5, 16, 9, 0)
+    db_handler.insert_message_id(1, 10, SurveyType.SUBSCRIBE)
+    db_handler.insert_message_id(1, 11, SurveyType.SUBSCRIBE, delete_at=earlier)
+    db_handler.insert_message_id(1, 12, SurveyType.DAILY)
+
+    assert db_handler.schedule_deletion_for_type(SurveyType.SUBSCRIBE, deadline) == 1
+    due = db_handler.get_due_message_deletions(deadline)
+    assert sorted(m for _, m, _ in due) == [10, 11]
+
+
+def test_messages_table_from_an_older_version_is_migrated(tmp_path, monkeypatch):
+    db_file = tmp_path / "old.db"
+    monkeypatch.setattr(db_module, "DB_FILE", db_file)
+    connection = sqlite3.connect(db_file)
+    connection.execute(
+        "CREATE TABLE messages (chat_id INTEGER NOT NULL, message_id INTEGER NOT NULL, type TEXT NOT NULL, "
+        "PRIMARY KEY (chat_id, message_id, type))"
+    )
+    connection.execute("INSERT INTO messages VALUES (1, 10, 'SUBSCRIBE')")
+    connection.commit()
+    connection.close()
+
+    migrated = DbHandler()
+
+    # the old entry has no send time; it can still be planned and deleted
+    assert migrated.get_tracked_messages([1], SurveyType.SUBSCRIBE) == [(1, 10, None)]
+    migrated.schedule_deletion_for_type(SurveyType.SUBSCRIBE, datetime(2026, 5, 20, 20, 0))
+    assert migrated.get_due_message_deletions(datetime(2026, 5, 21)) == [(1, 10, None)]

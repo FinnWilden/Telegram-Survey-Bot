@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio, json, logging, sqlite3, sys
 from asyncio import AbstractEventLoop
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from collections.abc import Awaitable, Callable
 
@@ -53,7 +53,7 @@ from bot_utils.bot_utils import KeyboardBuilder
 from bot_utils.config_handler import ConfigHandler
 from bot_utils.config_validator import ConfigValidationException
 from bot_utils.console_dashboard import ConsoleDashboard
-from bot_utils.db_handler import DbHandler
+from bot_utils.db_handler import DbHandler, TrackedMessage
 from bot_utils.emergency_start import EmergencyStart
 from bot_utils.schedule_util import ScheduleUtil
 from bot_utils.startup_errors import (
@@ -109,6 +109,15 @@ def configure_log_levels(debug: bool) -> None:
 
 
 configure_log_levels(debug=False)
+
+# Link deletion: planned deletions are stored in the database and checked regularly, so they
+# also happen after a restart or crash. Telegram only lets bots delete messages for 48 hours.
+DELETION_CHECK_SECONDS = 30
+TELEGRAM_DELETE_LIMIT = timedelta(hours=48)
+START_LINK_TYPE = "START_LINK"   # start survey link; SUBSCRIBE is used for the subscription questions
+NOTICE_TYPE = "NOTICE"           # short notices such as "already subscribed", deleted after a minute
+NOTICE_DELETE_MINUTES = 1
+deletion_lock = asyncio.Lock()
 
 TIMEZONE_STATE = 0
 TIME_STATE = 1
@@ -290,13 +299,52 @@ def schedule_notifications() -> None:
     """
     Schedules all time triggers with APScheduler.
     """
+    settings = config_handler.config.linkDeletionSettings
+    if settings.start_DeleteLinkAtSubscriptionDeadline:
+        # subscription questions remembered by older versions get the deadline as deletion time
+        db_handler.schedule_deletion_for_type(SurveyType.SUBSCRIBE, config_handler.config.subscription_deadline)
+
+    warn_about_telegram_delete_limit()
+
+    # the first check runs right at startup and deletes everything that became due meanwhile
+    scheduler.add_job(
+        delete_due_messages,
+        "interval",
+        seconds=DELETION_CHECK_SECONDS,
+        id="link-deletion",
+        next_run_time=datetime.now(),
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+
+def warn_about_telegram_delete_limit() -> None:
+    """
+    Warn about deletion settings that cannot work because of Telegram's 48-hour limit.
+    """
+    settings = config_handler.config.linkDeletionSettings
+    limit_minutes = int(TELEGRAM_DELETE_LIMIT.total_seconds() // 60)
+    for prefix in ("start", "daily", "end"):
+        if getattr(settings, f"{prefix}_DeleteLinkTimer") and getattr(settings, f"{prefix}_DeleteDelayMinutes") >= limit_minutes:
+            logging.warning(LINK_DELETE_DELAY_TOO_LONG.format(prefix, limit_minutes))
+
+    deadline = config_handler.config.subscription_deadline
+    if settings.start_DeleteLinkAtSubscriptionDeadline and deadline - datetime.now() > TELEGRAM_DELETE_LIMIT:
+        logging.warning(LINK_DELETE_DEADLINE_FAR.format(deadline.strftime("%Y-%m-%d %H:%M")))
+
+
+def minutes_from_now(minutes: int) -> datetime:
+    return datetime.now() + timedelta(minutes=minutes)
+
+
+def subscription_question_delete_time() -> datetime | None:
+    """
+    Deletion time of subscription questions and answers: the subscription deadline, if enabled.
+    """
     if config_handler.config.linkDeletionSettings.start_DeleteLinkAtSubscriptionDeadline:
-        schedule_util.schedule_delete_messages(
-            delete_messages,
-            config_handler.config.subscription_deadline,
-            db_handler.query_and_delete_message_ids_by_type,
-            SurveyType.SUBSCRIBE,
-        )
+        return config_handler.config.subscription_deadline
+    return None
 
 
 def send_notification_broadcast(survey_type: SurveyType, job_id: str, date_str: str) -> None:
@@ -313,18 +361,11 @@ def send_end_survey_reminder(chat_id_list: list[int], date_str: str) -> None:
     submit_async(send_end_survey_reminder_async(chat_id_list, date_str))
 
 
-def delete_messages(query_function: Callable, *func_args) -> None:
+def delete_due_messages() -> None:
     """
     Synchronous wrapper used by APScheduler.
     """
-    submit_async(delete_messages_async(query_function, *func_args))
-
-
-def delete_message(chat_id: int, message_id: int) -> None:
-    """
-    Synchronous wrapper used by APScheduler.
-    """
-    submit_async(delete_message_async(chat_id, message_id))
+    submit_async(delete_due_messages_async())
 
 
 # -----------------------------------------------------------------------------
@@ -478,7 +519,7 @@ async def subscribe_rejected(
     """
     logging.info(SUBSCRIPTION_REJECTED.format(chat_id, log_msg))
     msg = await send_tracked_message(context.bot, chat_id, usr_msg)
-    schedule_util.schedule_delete_message(delete_message, 1, chat_id, msg.message_id)
+    db_handler.insert_message_id(chat_id, msg.message_id, NOTICE_TYPE, minutes_from_now(NOTICE_DELETE_MINUTES))
 
 
 async def subscribe_ask(
@@ -492,7 +533,7 @@ async def subscribe_ask(
     """
     logging.debug(SUBSCRIPTION_ASK.format(chat_id, log_msg))
     msg = await send_tracked_message(context.bot, chat_id, usr_msg)
-    db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE)
+    db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE, subscription_question_delete_time())
 
 
 async def error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -548,7 +589,7 @@ async def subscribe_wakeup_time(update: Update, context: ContextTypes.DEFAULT_TY
     not config_handler.config.participantsEnterCondition
     and config_handler.config.linkDeletionSettings.deleteSubscriptionSetupMessages
     ):
-        await delete_messages_async(db_handler.query_and_delete_message_ids, [chat_id], SurveyType.SUBSCRIBE)
+        await delete_tracked_messages(db_handler.get_tracked_messages([chat_id], SurveyType.SUBSCRIBE))
 
     wakeup_time: time = TimeUtil.get_time_from_str(update.message.text)
     logging.info(SUBSCRIPTION_WAKEUP_TIME.format(chat_id, wakeup_time))
@@ -579,7 +620,7 @@ async def subscribe_condition(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = update.effective_chat.id
 
     if config_handler.config.linkDeletionSettings.deleteSubscriptionSetupMessages:
-        await delete_messages_async(db_handler.query_and_delete_message_ids, [chat_id], SurveyType.SUBSCRIBE)
+        await delete_tracked_messages(db_handler.get_tracked_messages([chat_id], SurveyType.SUBSCRIBE))
 
     condition = int(update.message.text)
     logging.info(SUBSCRIPTION_GOT_CONDITION.format(chat_id, condition))
@@ -615,13 +656,14 @@ async def send_subscribe_message(context: ContextTypes.DEFAULT_TYPE, chat_id: in
         markup,
     )
 
-    if config_handler.config.linkDeletionSettings.start_DeleteLinkTimer:
-        schedule_util.schedule_delete_message(
-            delete_message,
-            config_handler.config.linkDeletionSettings.start_DeleteDelayMinutes,
-            chat_id,
-            msg.message_id,
-        )
+    settings = config_handler.config.linkDeletionSettings
+    delete_times = []
+    if settings.start_DeleteLinkTimer:
+        delete_times.append(minutes_from_now(settings.start_DeleteDelayMinutes))
+    if settings.start_DeleteLinkAtSubscriptionDeadline:
+        delete_times.append(config_handler.config.subscription_deadline)
+    if delete_times:
+        db_handler.insert_message_id(chat_id, msg.message_id, START_LINK_TYPE, min(delete_times))
 
 
 async def subscribe_wakeup_time_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -629,7 +671,9 @@ async def subscribe_wakeup_time_fallback(update: Update, context: ContextTypes.D
     Fallback handler for invalid subscription conversation input.
     """
     chat_id = update.effective_chat.id
-    db_handler.insert_message_id(chat_id, update.message.message_id, SurveyType.SUBSCRIBE)
+    db_handler.insert_message_id(
+        chat_id, update.message.message_id, SurveyType.SUBSCRIBE, subscription_question_delete_time()
+    )
 
     state_code = context.user_data.get("subscribe_state")
 
@@ -717,15 +761,7 @@ async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         markup,
     )
 
-    db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.DAILY)
-
-    if config_handler.config.linkDeletionSettings.daily_DeleteLinkTimer:
-        schedule_util.schedule_delete_message(
-            delete_message,
-            config_handler.config.linkDeletionSettings.daily_DeleteDelayMinutes,
-            chat_id,
-            msg.message_id,
-        )
+    db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.DAILY, link_delete_time(SurveyType.DAILY))
 
 
 async def handle_end_survey_reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -739,7 +775,8 @@ async def handle_end_survey_reminder_callback(update: Update, context: ContextTy
     callback_code = query.data.split("+")
     message_id = query.message.message_id
 
-    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    # the answer must still work when the question can no longer be deleted (e.g. after 48 hours)
+    await delete_tracked_messages([(chat_id, message_id, None)], bot=context.bot)
 
     if callback_code[0] == ER_NO:
         condition, end_index = db_handler.get_condition_and_end_index(chat_id, callback_code[1])
@@ -759,17 +796,7 @@ async def handle_end_survey_reminder_callback(update: Update, context: ContextTy
             markup,
         )
 
-        if config_handler.config.linkDeletionSettings.end_DeleteLinkAtNewLink:
-            db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.END)
-
-        if config_handler.config.linkDeletionSettings.end_DeleteLinkTimer:
-            schedule_util.schedule_delete_message(
-                delete_messages,
-                config_handler.config.linkDeletionSettings.end_DeleteDelayMinutes,
-                db_handler.query_and_delete_message_ids,
-                [chat_id],
-                SurveyType.END,
-            )
+        db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.END, link_delete_time(SurveyType.END))
 
 
 # -----------------------------------------------------------------------------
@@ -788,14 +815,9 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
         survey_type.name,
     )
 
-    if (
-        config_handler.config.linkDeletionSettings.daily_DeleteLinkAtNewLink
-        or config_handler.config.linkDeletionSettings.end_DeleteLinkAtNewLink
-    ):
-        await delete_messages_async(
-            db_handler.query_and_delete_message_ids,
-            [x[0] for x in subscriber_information],
-            survey_type,
+    if delete_link_at_new_link(survey_type):
+        await delete_tracked_messages(
+            db_handler.get_tracked_messages([x[0] for x in subscriber_information], survey_type)
         )
 
     msg_text: str = config_handler.get_message(survey_type)
@@ -824,7 +846,7 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
                 survey_type.name,
                 markup,
             )
-            db_handler.insert_message_id(chat_id, msg.message_id, survey_type)
+            db_handler.insert_message_id(chat_id, msg.message_id, survey_type, link_delete_time(survey_type))
         except Forbidden as err:
             logging.error("Can't send survey to %d because the bot is blocked or forbidden: %s", chat_id, err)
         except NetworkError as err:
@@ -832,27 +854,29 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
         except TelegramError as err:
             logging.error("Telegram error while sending survey to %d: %s", chat_id, err)
 
-    chat_id_list = [chat_id for chat_id, _, _ in subscriber_information]
-
     if survey_type == SurveyType.END and config_handler.config.endSurveyReminderEnabled:
         schedule_util.schedule_end_survey_reminder(send_end_survey_reminder, subscriber_information)
 
-    if survey_type == SurveyType.DAILY and config_handler.config.linkDeletionSettings.daily_DeleteLinkTimer:
-        schedule_util.schedule_delete_message(
-            delete_messages,
-            config_handler.config.linkDeletionSettings.daily_DeleteDelayMinutes,
-            db_handler.query_and_delete_message_ids,
-            chat_id_list,
-            survey_type,
-        )
-    elif survey_type == SurveyType.END and config_handler.config.linkDeletionSettings.end_DeleteLinkTimer:
-        schedule_util.schedule_delete_message(
-            delete_messages,
-            config_handler.config.linkDeletionSettings.end_DeleteDelayMinutes,
-            db_handler.query_and_delete_message_ids,
-            chat_id_list,
-            survey_type,
-        )
+
+def delete_link_at_new_link(survey_type: SurveyType) -> bool:
+    settings = config_handler.config.linkDeletionSettings
+    if survey_type == SurveyType.DAILY:
+        return settings.daily_DeleteLinkAtNewLink
+    if survey_type == SurveyType.END:
+        return settings.end_DeleteLinkAtNewLink
+    return False
+
+
+def link_delete_time(survey_type: SurveyType) -> datetime | None:
+    """
+    When a daily or end survey link sent now is to be deleted by its timer, or None.
+    """
+    settings = config_handler.config.linkDeletionSettings
+    if survey_type == SurveyType.DAILY and settings.daily_DeleteLinkTimer:
+        return minutes_from_now(settings.daily_DeleteDelayMinutes)
+    if survey_type == SurveyType.END and settings.end_DeleteLinkTimer:
+        return minutes_from_now(settings.end_DeleteDelayMinutes)
+    return None
 
 
 def remove_job_from_scheduler(job_id: str) -> None:
@@ -894,26 +918,52 @@ async def send_end_survey_reminder_async(chat_id_list: list[int], date_str: str)
             logging.error("Telegram error while sending end reminder to %d: %s", chat_id, err)
 
 
-async def delete_messages_async(query_function: Callable, *func_args) -> None:
+async def delete_due_messages_async() -> None:
     """
-    Deletes multiple link messages.
+    Deletes all messages whose planned deletion time has come.
     """
-    id_list: list[tuple] = query_function(*func_args)
-
-    for chat_id, message_id in id_list:
-        await delete_message_async(chat_id, message_id)
+    async with deletion_lock:  # a slow run must not overlap with the next check
+        await delete_tracked_messages(db_handler.get_due_message_deletions(datetime.now()))
 
 
-async def delete_message_async(chat_id: int, message_id: int) -> None:
+async def delete_tracked_messages(messages: list[TrackedMessage], bot: Bot | None = None) -> None:
     """
-    Deletes one Telegram message.
+    Deletes remembered messages in Telegram and forgets them afterwards.
+
+    Messages older than 48 hours are not sent to Telegram, which would refuse them; they are
+    reported together in one warning. Messages that failed because of a network problem are
+    kept and tried again at the next check.
     """
-    try:
-        await application.bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except BadRequest as err:
-        logging.error("Can't delete message %d in chat %d because: %s", message_id, chat_id, err)
-    except TelegramError as err:
-        logging.error("Telegram error while deleting message %d in chat %d: %s", message_id, chat_id, err)
+    bot = bot or application.bot
+    now = datetime.now()
+    too_old = 0
+
+    for chat_id, message_id, sent_at in messages:
+        if sent_at is not None and now - sent_at >= TELEGRAM_DELETE_LIMIT:
+            too_old += 1
+            db_handler.remove_tracked_message(chat_id, message_id)
+            continue
+
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except BadRequest as err:
+            if "can't be deleted" in str(err).lower():
+                too_old += 1  # entries from older versions have no send time to check beforehand
+            else:
+                logging.debug("Message %d in chat %d was not deleted: %s", message_id, chat_id, err)
+        except Forbidden as err:
+            logging.info("Can't delete message %d in chat %d, the bot was blocked: %s", message_id, chat_id, err)
+        except NetworkError as err:
+            logging.warning("Network error while deleting message %d in chat %d, trying again later: %s",
+                            message_id, chat_id, err)
+            continue
+        except TelegramError as err:
+            logging.error("Telegram error while deleting message %d in chat %d: %s", message_id, chat_id, err)
+
+        db_handler.remove_tracked_message(chat_id, message_id)
+
+    if too_old:
+        logging.warning(LINKS_TOO_OLD_TO_DELETE.format(too_old))
 
 
 def _start_arguments() -> list[str]:

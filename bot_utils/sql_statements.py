@@ -181,45 +181,51 @@ DELETE FROM subscribers
 # ============================================================
 
 INSERT_MESSAGE = """
-INSERT INTO messages (chat_id, message_id, type)
-VALUES (?, ?, ?)
+INSERT OR REPLACE INTO messages (chat_id, message_id, type, sent_at, delete_at)
+VALUES (?, ?, ?, ?, ?)
 """
 
-SELECT_MESSAGE = """
-SELECT chat_id, message_id, type
+# Columns added after the first release. sent_at: when the message was sent (Telegram only
+# lets bots delete messages for 48 hours); delete_at: when it is to be deleted (NULL = only
+# when the next link of the same type is sent). Both are NULL for entries from older versions.
+MESSAGE_MIGRATION_COLUMNS = {
+    "sent_at": "ALTER TABLE messages ADD COLUMN sent_at TEXT",
+    "delete_at": "ALTER TABLE messages ADD COLUMN delete_at TEXT",
+}
+
+SELECT_TRACKED_MESSAGES = """
+SELECT chat_id, message_id, sent_at
 FROM messages
+WHERE chat_id=?
+AND type=?
+"""
+
+SELECT_DUE_MESSAGE_DELETIONS = """
+SELECT chat_id, message_id, sent_at
+FROM messages
+WHERE delete_at IS NOT NULL
+AND delete_at<=?
+ORDER BY delete_at
+"""
+
+DELETE_TRACKED_MESSAGE = """
+DELETE FROM messages
 WHERE chat_id=?
 AND message_id=?
-AND type=?
 """
 
-SELECT_MESSAGE_TYPE = """
-SELECT chat_id, message_id
-FROM messages
+SET_DELETE_AT_FOR_UNSCHEDULED_TYPE = """
+UPDATE messages
+SET delete_at=?
 WHERE type=?
+AND delete_at IS NULL
 """
 
-SELECT_MESSAGE_ID = """
-SELECT chat_id, message_id
-FROM messages
-WHERE chat_id=?
-AND type=?
-"""
-
+# Keeps messages with a planned deletion, so links still disappear after unsubscribing.
 DELETE_MESSAGE = """
 DELETE FROM messages
 WHERE chat_id=?
-"""
-
-DELETE_MESSAGE_TYPE = """
-DELETE FROM messages
-WHERE type=?
-"""
-
-DELETE_MESSAGE_ID = """
-DELETE FROM messages
-WHERE chat_id=?
-AND type=?
+AND delete_at IS NULL
 """
 
 
