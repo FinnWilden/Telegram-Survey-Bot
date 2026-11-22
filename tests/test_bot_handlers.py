@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -277,6 +278,8 @@ async def test_subscribe_wakeup_time_finishes_subscription(
     assert args[1] == 1
     assert args[3].hour == 6
     assert args[3].minute == 30
+    bot.db_handler.register_participant.assert_called_once_with(123, 1, "06:30")
+    assert "wakeup_time" not in context.user_data
 
 
 @pytest.mark.asyncio
@@ -353,3 +356,20 @@ async def test_callback_no_sends_end_link(update, context, mock_db_handler, monk
         text="End survey reminder",
         reply_markup=markup,
     )
+
+
+@pytest.mark.asyncio
+async def test_sent_messages_are_tracked_for_the_dashboard(update, context, mock_db_handler):
+    await bot.start(update, context)
+
+    mock_db_handler.record_outbound_message.assert_called_once_with(123, 999, "MESSAGE")
+
+
+@pytest.mark.asyncio
+async def test_tracking_failure_does_not_break_message_delivery(update, context, mock_db_handler):
+    mock_db_handler.record_outbound_message.side_effect = sqlite3.OperationalError("database is locked")
+
+    message = await bot.send_tracked_message(context.bot, 123, "Hello")
+
+    assert message.message_id == 999
+    context.bot.send_message.assert_called_once_with(chat_id=123, text="Hello")

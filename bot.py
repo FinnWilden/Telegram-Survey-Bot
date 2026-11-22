@@ -19,7 +19,7 @@ along with Telegram Survey Bot. If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import annotations
 
-import asyncio, logging, sys
+import asyncio, logging, sqlite3, sys
 from asyncio import AbstractEventLoop
 from datetime import datetime, time
 from pathlib import Path
@@ -29,7 +29,9 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
+from rich.console import Console
+from rich.logging import RichHandler
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.error import BadRequest, Forbidden, InvalidToken, NetworkError, TelegramError
 from telegram.ext import (
     Application,
@@ -47,6 +49,7 @@ from bot_utils.bot_enums import SurveyType
 from bot_utils.bot_utils import KeyboardBuilder
 from bot_utils.config_handler import ConfigHandler
 from bot_utils.config_validator import ConfigValidationException
+from bot_utils.console_dashboard import ConsoleDashboard
 from bot_utils.db_handler import DbHandler
 from bot_utils.emergency_start import EmergencyStart
 from bot_utils.schedule_util import ScheduleUtil
@@ -54,12 +57,16 @@ from bot_utils.time_util import TimeUtil
 from bot_utils.logging_strings import *
 
 
+console = Console()
+# RichHandler already renders time and level, so the console only needs the message.
+console_handler = RichHandler(console=console, show_path=False)
+console_handler.setFormatter(logging.Formatter("%(message)s"))
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s-%(name)s-%(levelname)s: %(message)s",
     handlers=[
         logging.FileHandler("log/log_{}.log".format(datetime.now().strftime("%Y%m%d-%H%M%S"))),
-        logging.StreamHandler(),
+        console_handler,
     ],
 )
 logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
@@ -77,6 +84,8 @@ scheduler: BackgroundScheduler
 db_handler: DbHandler
 application: Application
 application_loop: AbstractEventLoop | None = None
+dashboard_task: asyncio.Task[None] | None = None
+dashboard_stop_event: asyncio.Event | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -161,10 +170,18 @@ async def post_init(app: Application) -> None:
     Telegram API calls are async; therefore scheduled jobs submit coroutines to
     this event loop via asyncio.run_coroutine_threadsafe().
     """
-    global application, application_loop
+    global application, application_loop, dashboard_task, dashboard_stop_event
 
     application = app
     application_loop = asyncio.get_running_loop()
+
+    dashboard = ConsoleDashboard(db_handler, console)
+    if dashboard.is_available(console):
+        dashboard_stop_event = asyncio.Event()
+        dashboard_task = asyncio.create_task(
+            dashboard.run(dashboard_stop_event),
+            name="console-dashboard",
+        )
 
     EmergencyStart(schedule_util, db_handler, send_notification_broadcast)
     schedule_notifications()
@@ -177,6 +194,14 @@ async def post_shutdown(_: Application) -> None:
     """
     Called by PTB during shutdown.
     """
+    if dashboard_stop_event is not None:
+        dashboard_stop_event.set()
+    if dashboard_task is not None:
+        try:
+            await dashboard_task
+        except Exception as err:  # the dashboard must never block a clean shutdown
+            logging.error("Console dashboard stopped with an error: %s", err)
+
     if scheduler.running:
         logging.info("Shutdown scheduler...")
         scheduler.shutdown(wait=True)
@@ -257,12 +282,39 @@ def delete_message(chat_id: int, message_id: int) -> None:
 # -----------------------------------------------------------------------------
 
 
+async def send_tracked_message(
+    bot: Bot,
+    chat_id: int,
+    text: str,
+    message_type: str = "MESSAGE",
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> Message:
+    """
+    Send a message and persist its delivery for the operator dashboard.
+    """
+    if reply_markup is None:
+        message = await bot.send_message(chat_id=chat_id, text=text)
+    else:
+        message = await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+        )
+
+    try:
+        db_handler.record_outbound_message(chat_id, message.message_id, message_type)
+    except sqlite3.Error as err:
+        # Tracking is only for the operator dashboard; never let it abort a delivery flow.
+        logging.error("Could not record sent message for %d: %s", chat_id, err)
+    return message
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handles /start.
     """
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id=chat_id, text=config_handler.config.texts.welcome)
+    await send_tracked_message(context.bot, chat_id, config_handler.config.texts.welcome)
 
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -360,7 +412,7 @@ async def subscribe_rejected(
     Tells the user that subscription was rejected.
     """
     logging.info(SUBSCRIPTION_REJECTED.format(chat_id, log_msg))
-    msg = await context.bot.send_message(chat_id=chat_id, text=usr_msg)
+    msg = await send_tracked_message(context.bot, chat_id, usr_msg)
     schedule_util.schedule_delete_message(delete_message, 1, chat_id, msg.message_id)
 
 
@@ -374,7 +426,7 @@ async def subscribe_ask(
     Sends the next subscription question.
     """
     logging.info(SUBSCRIPTION_ASK.format(chat_id, log_msg))
-    msg = await context.bot.send_message(chat_id=chat_id, text=usr_msg)
+    msg = await send_tracked_message(context.bot, chat_id, usr_msg)
     db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.SUBSCRIBE)
 
 
@@ -435,6 +487,7 @@ async def subscribe_wakeup_time(update: Update, context: ContextTypes.DEFAULT_TY
 
     wakeup_time: time = TimeUtil.get_time_from_str(update.message.text)
     logging.info(SUBSCRIPTION_WAKEUP_TIME.format(chat_id, wakeup_time))
+    context.user_data["wakeup_time"] = wakeup_time.strftime("%H:%M")
 
     condition = db_handler.get_used_condition(chat_id) if config_handler.config.uniqueConditions else config_handler.get_condition()
     schedule_util.add_new_subscriber(chat_id, condition, send_notification_broadcast, wakeup_time)
@@ -483,10 +536,13 @@ async def send_subscribe_message(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     logging.info(SUBSCRIPTION_FINISHED.format(chat_id))
     markup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.SUBSCRIBE, condition)
 
-    msg = await context.bot.send_message(
-        chat_id=chat_id,
-        text=config_handler.config.texts.subscribe,
-        reply_markup=markup,
+    db_handler.register_participant(chat_id, condition, context.user_data.pop("wakeup_time", None))
+    msg = await send_tracked_message(
+        context.bot,
+        chat_id,
+        config_handler.config.texts.subscribe,
+        SurveyType.SUBSCRIBE.name,
+        markup,
     )
 
     if config_handler.config.linkDeletionSettings.start_DeleteLinkTimer:
@@ -541,7 +597,7 @@ async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     chat_id = update.effective_chat.id
     logging.info(UNSUBSCRIBE.format(chat_id))
     db_handler.remove_subscriber(chat_id)
-    await context.bot.send_message(chat_id=chat_id, text=config_handler.config.texts.unsubscribe)
+    await send_tracked_message(context.bot, chat_id, config_handler.config.texts.unsubscribe)
 
 
 async def send_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -554,7 +610,7 @@ async def send_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if config_handler.config.surveyCommandEnabled:
         help_text += config_handler.config.help.surveyCommandHelp
 
-    await context.bot.send_message(chat_id=chat_id, text=help_text)
+    await send_tracked_message(context.bot, chat_id, help_text)
 
 
 async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -567,9 +623,10 @@ async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     try:
         condition = db_handler.get_condition(chat_id)
     except LookupError:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=config_handler.config.texts.survey_not_subscribed,
+        await send_tracked_message(
+            context.bot,
+            chat_id,
+            config_handler.config.texts.survey_not_subscribed,
         )
         return
 
@@ -581,10 +638,12 @@ async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     logging.info(SEND_SURVEY.format(SurveyType.DAILY.name, chat_id))
 
-    msg: Message = await context.bot.send_message(
-        chat_id=chat_id,
-        text=config_handler.config.texts.survey_reply,
-        reply_markup=markup,
+    msg: Message = await send_tracked_message(
+        context.bot,
+        chat_id,
+        config_handler.config.texts.survey_reply,
+        SurveyType.DAILY.name,
+        markup,
     )
 
     db_handler.insert_message_id(chat_id, msg.message_id, SurveyType.DAILY)
@@ -615,10 +674,12 @@ async def handle_end_survey_reminder_callback(update: Update, context: ContextTy
         condition, end_index = db_handler.get_condition_and_end_index(chat_id, callback_code[1])
         markup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.END, condition, end_index)
 
-        msg = await context.bot.send_message(
-            chat_id=chat_id,
-            text=config_handler.config.texts.endSurveyReminder,
-            reply_markup=markup,
+        msg = await send_tracked_message(
+            context.bot,
+            chat_id,
+            config_handler.config.texts.endSurveyReminder,
+            SurveyType.END.name,
+            markup,
         )
 
         if config_handler.config.linkDeletionSettings.end_DeleteLinkAtNewLink:
@@ -671,7 +732,13 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
         )
         try:
             logging.info(SEND_SURVEY.format(survey_type.name, chat_id))
-            msg = await application.bot.send_message(chat_id=chat_id, text=msg_text, reply_markup=markup)
+            msg = await send_tracked_message(
+                application.bot,
+                chat_id,
+                msg_text,
+                survey_type.name,
+                markup,
+            )
             db_handler.insert_message_id(chat_id, msg.message_id, survey_type)
         except Forbidden as err:
             logging.error("Can't send survey to %d because the bot is blocked or forbidden: %s", chat_id, err)
@@ -729,10 +796,12 @@ async def send_end_survey_reminder_async(chat_id_list: list[int], date_str: str)
     for chat_id in chat_id_list:
         try:
             logging.info(SEND_SURVEY.format("END REMINDER", chat_id))
-            await application.bot.send_message(
-                chat_id=chat_id,
-                text=config_handler.config.texts.endSurveyReminder,
-                reply_markup=markup,
+            await send_tracked_message(
+                application.bot,
+                chat_id,
+                config_handler.config.texts.endSurveyReminder,
+                "END_REMINDER",
+                markup,
             )
         except Forbidden as err:
             logging.error("Can't send end reminder to %d because the bot is blocked or forbidden: %s", chat_id, err)
