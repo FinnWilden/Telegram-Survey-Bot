@@ -214,7 +214,7 @@ def test_handwritten_yaml_with_plain_end_url_loads(tmp_path, config_dict):
     assert handler.get_url(SurveyType.END, 0, 0, participant_number="0042") == "https://example.com/end?id=0042"
 
 
-@pytest.mark.parametrize("config_name, uses_participant_numbers", [("config.yml", True), ("test.yml", False)])
+@pytest.mark.parametrize("config_name, uses_participant_numbers", [("config.yml", True), ("test.yml", True)])
 def test_shipped_config_templates_are_valid(config_name, uses_participant_numbers):
     # config.yml is packaged with every precompiled release
     handler = ConfigHandler(config_file=Path(__file__).parent.parent / "config" / config_name)

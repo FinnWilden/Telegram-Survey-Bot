@@ -19,7 +19,7 @@ along with Telegram Survey Bot. If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import annotations
 
-import asyncio, logging, sqlite3, sys
+import asyncio, json, logging, sqlite3, sys
 from asyncio import AbstractEventLoop
 from datetime import datetime, time
 from pathlib import Path
@@ -29,7 +29,10 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.background import BackgroundScheduler
 
+import yaml
+
 from rich.console import Console
+from rich.highlighter import NullHighlighter
 from rich.logging import RichHandler
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.error import BadRequest, Forbidden, InvalidToken, NetworkError, TelegramError
@@ -53,19 +56,36 @@ from bot_utils.console_dashboard import ConsoleDashboard
 from bot_utils.db_handler import DbHandler
 from bot_utils.emergency_start import EmergencyStart
 from bot_utils.schedule_util import ScheduleUtil
+from bot_utils.startup_errors import (
+    HideBootstrapTracebacks,
+    StartupError,
+    check_api_token,
+    config_file_not_found,
+    config_incomplete,
+    config_syntax_error,
+    invalid_token_error,
+    network_error,
+    report,
+)
 from bot_utils.time_util import TimeUtil
 from bot_utils.logging_strings import *
 
 
 console = Console()
 # RichHandler already renders time and level, so the console only needs the message.
-console_handler = RichHandler(console=console, show_path=False)
+# NullHighlighter: Rich would otherwise colour every number and date part inside the
+# messages (e.g. job ids like 2026-11-22-20:17DAILY) in a different colour.
+console_handler = RichHandler(console=console, show_path=False, highlighter=NullHighlighter())
 console_handler.setFormatter(logging.Formatter("%(message)s"))
+file_handler = logging.FileHandler("log/log_{}.log".format(datetime.now().strftime("%Y%m%d-%H%M%S")))
+for log_handler in (console_handler, file_handler):
+    # startup login errors are reported readably by main(), without PTB's traceback and token
+    log_handler.addFilter(HideBootstrapTracebacks())
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s-%(name)s-%(levelname)s: %(message)s",
     handlers=[
-        logging.FileHandler("log/log_{}.log".format(datetime.now().strftime("%Y%m%d-%H%M%S"))),
+        file_handler,
         console_handler,
     ],
 )
@@ -895,17 +915,37 @@ def main() -> None:
     global config_handler, schedule_util, db_handler, scheduler
 
     logging.info("Load Config...")
+    config_path: Path | None = None
     try:
-        config_handler = ConfigHandler(config_file=_get_config_path())
+        config_path = _get_config_path() or ConfigHandler.find_config_file()
+        config_handler = ConfigHandler(config_file=config_path)
+        config_handler.config.api_token = check_api_token(config_handler.config.api_token, config_path)
+
+    except StartupError as err:
+        report(err)
+        raise SystemExit(1)
 
     except ConfigValidationException as err:
+        logging.error("The bot could not be started because the config file %s contains errors:", config_path)
         for message in err.message_list:
-            logging.error(message)
-        raise SystemExit(-1)
+            logging.error("  - %s", message)
+        raise SystemExit(1)
 
-    except (ValueError, TypeError, KeyError) as err:
-        logging.error("%s: %s", type(err).__name__, err)
-        raise SystemExit(-1)
+    except FileNotFoundError as err:
+        report(config_file_not_found(err))
+        raise SystemExit(1)
+
+    except (yaml.YAMLError, json.JSONDecodeError) as err:
+        report(config_syntax_error(err, config_path))
+        raise SystemExit(1)
+
+    except TypeError as err:
+        report(config_incomplete(err, config_path))
+        raise SystemExit(1)
+
+    except (ValueError, KeyError) as err:
+        logging.error("The config file %s contains an invalid value: %s", config_path, err)
+        raise SystemExit(1)
 
     logging.info("Init...")
 
@@ -919,19 +959,18 @@ def main() -> None:
 
     try:
         app = init_application()
-    except InvalidToken as err:
-        logging.error(err)
-        logging.info("Check your API token in the config file")
-        raise SystemExit(-1)
+        init_handlers(app)
 
-    init_handlers(app)
-
-    logging.info("Start polling...")
-    try:
+        logging.info("Start polling...")
         app.run_polling()
     except KeyboardInterrupt:
         logging.info("Shutdown requested by user...")
-
+    except InvalidToken:
+        report(invalid_token_error(config_path))
+        raise SystemExit(1)
+    except NetworkError as err:
+        report(network_error(err))
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()

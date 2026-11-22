@@ -1,10 +1,13 @@
+import re
 import sqlite3
+from datetime import datetime
 from io import StringIO
 
 from rich.console import Console
 
 import bot_utils.db_handler as db_module
 from bot_utils.console_dashboard import TABLE_VIEW_OVERHEAD, ConsoleDashboard
+from bot_utils.bot_enums import SurveyType
 from bot_utils.db_handler import DbHandler
 
 
@@ -12,6 +15,7 @@ def test_dashboard_renders_persistent_counts_and_participant_details(tmp_path, m
     monkeypatch.setattr(db_module, "DB_FILE", tmp_path / "dashboard.db")
     db_handler = DbHandler()
     db_handler.insert_time_offset(123, 5400)
+    db_handler.insert_new_subscriber_entries(123, [datetime(2099, 1, 1, 9, 0)], SurveyType.DAILY, 2)
     db_handler.register_participant(123, 2, "07:15")
     db_handler.record_outbound_message(123, 10, "SUBSCRIBE")
     db_handler.record_outbound_message(123, 11, "DAILY")
@@ -118,3 +122,27 @@ def test_offset_formatting():
     assert ConsoleDashboard._format_offset(0) == "+0:00 h"
     assert ConsoleDashboard._format_offset(-5400) == "-1:30 h"
     assert ConsoleDashboard._format_offset(7200) == "+2:00 h"
+
+
+def test_dashboard_shows_active_finished_and_unsubscribed(tmp_path, monkeypatch):
+    monkeypatch.setattr(db_module, "DB_FILE", tmp_path / "dashboard.db")
+    db_handler = DbHandler()
+    for chat_id, date in ((1, datetime(2099, 1, 1, 9, 0)), (2, datetime(2020, 1, 1, 9, 0)), (3, datetime(2099, 1, 1, 9, 0))):
+        db_handler.insert_new_subscriber_entries(chat_id, [date], SurveyType.DAILY, 0)
+        db_handler.register_participant(chat_id, 0)
+    db_handler.remove_subscriber(3)
+
+    console = Console(file=StringIO(), width=120, record=True)
+    dashboard = ConsoleDashboard(db_handler, console)
+    console.print(dashboard.render())
+    summary = console.export_text()
+    assert re.search(r"Aktiv\s+1", summary)
+    assert re.search(r"Beendet\s+1", summary)
+    assert re.search(r"Abgemeldet\s+1", summary)
+
+    dashboard.view = "participants"
+    console.print(dashboard.render())
+    rows = {line.split("│")[1].strip(): line for line in console.export_text().splitlines() if line.count("│") > 3}
+    assert "Aktiv" in rows["1"]
+    assert "Beendet" in rows["2"]
+    assert "Abgemeldet" in rows["3"]

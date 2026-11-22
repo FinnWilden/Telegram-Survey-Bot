@@ -97,8 +97,8 @@ single key presses (no Enter needed):
 
 | Key | View |
 |-----|------|
-| `d` | **Dashboard**: participant totals, active subscriptions, first and latest registration, and counts of sent messages (start, daily and end links, other messages); with participant numbers also how many numbers are assigned |
-| `p` | **Participants**: one row per participant with Telegram chat ID, participant number (when enabled), first and latest registration, status (active/unsubscribed), the answers given during subscription (condition, wake-up time, time offset to the server), number of messages received and the latest delivery |
+| `d` | **Dashboard**: participant totals split into active, finished and unsubscribed, first and latest registration, and counts of sent messages (start, daily and end links, other messages); with participant numbers also how many numbers are assigned |
+| `p` | **Participants**: one row per participant with Telegram chat ID, participant number (when enabled), first and latest registration, status (active, finished = registered but all survey dates are over, or unsubscribed), the answers given during subscription (condition, wake-up time, time offset to the server), number of messages received and the latest delivery |
 | `v` | **Delivery history**: the 100 most recent messages sent by the bot with time, chat ID and message type |
 | `n` / `b` | Next / previous page in the participant and delivery views |
 
