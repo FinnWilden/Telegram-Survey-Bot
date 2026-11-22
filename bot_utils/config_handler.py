@@ -36,7 +36,7 @@ class ConfigHandler:
         """
         self.logger = logging.getLogger(__name__)
 
-        self.config_file = config_file or self._find_config_file()
+        self.config_file = config_file or self.find_config_file()
         self.logger.info("Using config file: %s", self.config_file)
 
         data = self._load_config_file(self.config_file)
@@ -45,7 +45,7 @@ class ConfigHandler:
         ConfigValidator.validate_config(self.config)
 
     @staticmethod
-    def _find_config_file() -> Path:
+    def find_config_file() -> Path:
         """
         Find the first available config file.
 
