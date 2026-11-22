@@ -25,6 +25,16 @@ from datetime import datetime, time
 from bot_utils.bot_enums import EndUrlDistribution
 
 
+# Placeholder that every survey url must contain when 'useParticipantNumbers' is
+# enabled. It is replaced by the participant's number and may stand anywhere in the url.
+PARTICIPANT_PLACEHOLDER = "{participant}"
+
+DEFAULT_PARTICIPANT_NUMBER_DIGITS = 5
+
+# SQLite integers hold at most 19 digits; 18 keeps every number of that length storable.
+MAX_PARTICIPANT_NUMBER_DIGITS = 18
+
+
 @dataclass
 class DayCalculationSettings:
     daily_SurveyDays: list[int]
@@ -65,12 +75,19 @@ class RandomTimeShiftSettings:
 class Urls:
     start_url: list[str]
     daily_url: list[str]
-    end_url: list[list[str]]
+    end_url: list[list[str] | str]
     end_url_distribution: EndUrlDistribution | str
 
     def __post_init__(self) -> None:
         if isinstance(self.end_url_distribution, str):
             self.end_url_distribution = EndUrlDistribution[self.end_url_distribution]
+
+        # A plain url is the usual form: one end link per condition. A list is only
+        # needed when a condition has a different end link per end day or time.
+        self.end_url = [
+            [condition_links] if isinstance(condition_links, str) else condition_links
+            for condition_links in self.end_url
+        ]
 
 from dataclasses import dataclass
 
@@ -127,6 +144,8 @@ class Config:
     surveyCommandEnabled: bool
     texts: Texts | dict
     help: Help | dict
+    useParticipantNumbers: bool = False
+    participantNumberDigits: int = DEFAULT_PARTICIPANT_NUMBER_DIGITS
 
     def __post_init__(self) -> None:
         if isinstance(self.subscription_start_date, str):

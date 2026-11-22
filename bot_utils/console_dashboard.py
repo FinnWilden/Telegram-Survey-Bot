@@ -158,9 +158,19 @@ class ConsoleDashboard:
     Live operator dashboard with participant and delivery views for an interactive terminal.
     """
 
-    def __init__(self, db_handler: DbHandler, console: Console) -> None:
+    def __init__(
+        self,
+        db_handler: DbHandler,
+        console: Console,
+        participant_number_digits: int | None = None,
+    ) -> None:
+        """
+        :param participant_number_digits: configured length of the participant numbers,
+            or None when links are not completed with participant numbers
+        """
         self.db_handler = db_handler
         self.console = console
+        self.participant_number_digits = participant_number_digits
         self.view = "dashboard"
         self.page = 0
         self.command_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -297,6 +307,13 @@ class ConsoleDashboard:
                 if message_type not in SURVEY_LINK_TYPES
             )),
         )
+        if self.participant_number_digits is not None:
+            table.add_row(
+                "Nummern vergeben",
+                str(self.db_handler.count_participant_numbers()),
+                "Nummernlänge",
+                f"{self.participant_number_digits} Stellen",
+            )
         return Panel(table, title="Telegram Survey Bot · Live-Übersicht", border_style="cyan")
 
     def _render_participants(self) -> Table:
@@ -304,6 +321,10 @@ class ConsoleDashboard:
 
         columns: list[tuple[str, str, Callable[[Any], str | Text]]] = [
             ("Telegram-ID", "right", lambda p: str(p["chat_id"])),
+            *(
+                [("Nr.", "right", lambda p: self._format_optional(p["participant_number"]))]
+                if self.participant_number_digits is not None else []
+            ),
             ("Erste Anm.", "left", lambda p: self._format_short_timestamp(p["first_registered_at"])),
             ("Letzte Anm.", "left", lambda p: self._format_short_timestamp(p["last_registered_at"])),
             ("Status", "left", lambda p: Text("Aktiv", style="green") if p["is_active"] else Text("Abgemeldet", style="dim")),

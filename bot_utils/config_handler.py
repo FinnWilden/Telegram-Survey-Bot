@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 from bot_utils.bot_enums import SurveyType
-from bot_utils.config import Config
+from bot_utils.config import PARTICIPANT_PLACEHOLDER, Config
 from bot_utils.config_validator import ConfigValidator
 
 
@@ -101,17 +101,30 @@ class ConfigHandler:
         survey_type: SurveyType,
         condition: int,
         end_distribution: int = -1,
+        participant_number: str | None = None,
     ) -> str:
+        """
+        Return the survey link for a condition.
+
+        With 'useParticipantNumbers' the participant's number replaces the
+        placeholder in the configured url.
+        """
         if survey_type == SurveyType.SUBSCRIBE:
-            return self.config.urls.start_url[condition]
+            url = self.config.urls.start_url[condition]
+        elif survey_type == SurveyType.DAILY:
+            url = self.config.urls.daily_url[condition]
+        elif survey_type == SurveyType.END:
+            url = self.config.urls.end_url[condition][end_distribution]
+        else:
+            raise ValueError(f"Unknown survey type: {survey_type}")
 
-        if survey_type == SurveyType.DAILY:
-            return self.config.urls.daily_url[condition]
+        if not self.config.useParticipantNumbers:
+            return url
 
-        if survey_type == SurveyType.END:
-            return self.config.urls.end_url[condition][end_distribution]
+        if participant_number is None:
+            raise ValueError("A participant number is required when 'useParticipantNumbers' is enabled")
 
-        raise ValueError(f"Unknown survey type: {survey_type}")
+        return url.replace(PARTICIPANT_PLACEHOLDER, participant_number)
 
     def get_message(self, survey_type: SurveyType) -> str:
         if survey_type == SurveyType.DAILY:

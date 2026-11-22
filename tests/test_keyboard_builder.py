@@ -88,4 +88,15 @@ def test_generate_link_markup():
         SurveyType.DAILY,
         1,
         -1,
+        None,
     )
+
+
+def test_generate_link_markup_passes_participant_number():
+    config_handler = Mock()
+    config_handler.get_url.return_value = "https://example.com/survey42"
+
+    markup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.END, 0, 1, 42)
+
+    assert markup.inline_keyboard[0][0].url == "https://example.com/survey42"
+    config_handler.get_url.assert_called_once_with(SurveyType.END, 0, 1, 42)

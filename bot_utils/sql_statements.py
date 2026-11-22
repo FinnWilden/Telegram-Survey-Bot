@@ -82,6 +82,15 @@ CREATE TABLE IF NOT EXISTS outbound_messages (
 );
 """
 
+CREATE_TABLE_PARTICIPANT_NUMBERS = """
+CREATE TABLE IF NOT EXISTS participant_numbers (
+    chat_id INTEGER PRIMARY KEY,
+    number INTEGER NOT NULL UNIQUE,
+    code TEXT NOT NULL,
+    assigned_at TEXT NOT NULL
+);
+"""
+
 CREATE_INDEX_OUTBOUND_MESSAGES_CHAT_ID = """
 CREATE INDEX IF NOT EXISTS idx_outbound_messages_chat_id
 ON outbound_messages (chat_id);
@@ -313,10 +322,12 @@ SELECT
     participants.condition,
     participants.wakeup_time,
     offsets.offset AS time_offset,
+    participant_numbers.code AS participant_number,
     COUNT(outbound_messages.id) AS message_count,
     MAX(outbound_messages.sent_at) AS last_message_at
 FROM participants
 LEFT JOIN offsets ON participants.chat_id=offsets.chat_id
+LEFT JOIN participant_numbers ON participants.chat_id=participant_numbers.chat_id
 LEFT JOIN outbound_messages ON participants.chat_id=outbound_messages.chat_id
 GROUP BY participants.chat_id
 ORDER BY
@@ -330,4 +341,30 @@ SELECT chat_id, message_type, sent_at
 FROM outbound_messages
 ORDER BY id DESC
 LIMIT 100
+"""
+
+# ============================================================
+# PARTICIPANT NUMBERS
+# ============================================================
+
+SELECT_PARTICIPANT_NUMBER = """
+SELECT code
+FROM participant_numbers
+WHERE chat_id=?
+"""
+
+COUNT_PARTICIPANT_NUMBERS = """
+SELECT COUNT(*) AS used_count
+FROM participant_numbers
+"""
+
+SELECT_PARTICIPANT_NUMBERS_IN_RANGE = """
+SELECT number
+FROM participant_numbers
+WHERE number BETWEEN ? AND ?
+"""
+
+INSERT_PARTICIPANT_NUMBER = """
+INSERT INTO participant_numbers (chat_id, number, code, assigned_at)
+VALUES (?, ?, ?, ?)
 """

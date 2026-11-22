@@ -219,3 +219,114 @@ def test_end_url_distribution_random_requires_same_number_of_links_per_condition
     errors = ConfigValidator.validate_urls(config)
 
     assert "In distributionmode RANDOM every condition should have the same number of links" in errors
+
+
+# ---------------------------------------------------------------------------
+# Participant numbers
+# ---------------------------------------------------------------------------
+
+
+def placeholder_urls():
+    return {
+        "start_url": ["https://example.com/start?id={participant}"],
+        "daily_url": ["https://example.com/daily/{participant}"],
+        "end_url": ["https://example.com/end?id={participant}&x=1"],
+        "end_url_distribution": "NONE",
+    }
+
+
+def participant_number_config(config_dict, **overrides):
+    values = {"useParticipantNumbers": True, "urls": placeholder_urls()}
+    values.update(overrides)
+    return Config(**config_dict(**values))
+
+
+def test_config_without_participant_number_keys_still_loads(config_dict):
+    config = Config(**config_dict())
+
+    assert config.useParticipantNumbers is False
+    assert config.participantNumberDigits == 5
+    assert ConfigValidator.validate_participant_numbers(config) == []
+
+
+def test_valid_participant_number_config_has_no_errors(config_dict):
+    config = participant_number_config(config_dict, participantNumberDigits=7)
+
+    ConfigValidator.validate_config(config)
+    assert config.participantNumberDigits == 7
+
+
+def test_digits_default_to_five(config_dict):
+    assert participant_number_config(config_dict).participantNumberDigits == 5
+
+
+@pytest.mark.parametrize("digits", [0, -1, 19, "5", 2.5, True])
+def test_invalid_digits_are_rejected(config_dict, digits):
+    config = participant_number_config(config_dict, participantNumberDigits=digits)
+
+    assert ConfigValidator.validate_participant_numbers(config) == [
+        "'participantNumberDigits' must be a whole number from 1 to 18"
+    ]
+
+
+def test_every_url_must_contain_the_placeholder(config_dict):
+    urls = placeholder_urls()
+    urls["daily_url"] = ["https://example.com/daily?id="]
+    urls["end_url"] = [["https://example.com/end-day1?id={participant}", "https://example.com/end-day2"]]
+    urls["end_url_distribution"] = "RANDOM"
+    config = participant_number_config(config_dict, urls=urls)
+
+    assert ConfigValidator.validate_participant_numbers(config) == [
+        "Url 'https://example.com/daily?id=' must contain '{participant}' because 'useParticipantNumbers' is true.",
+        "Url 'https://example.com/end-day2' must contain '{participant}' because 'useParticipantNumbers' is true.",
+    ]
+
+
+def test_placeholder_without_participant_numbers_is_invalid(config_dict):
+    config = Config(**config_dict(urls=placeholder_urls()))
+
+    assert ConfigValidator.validate_participant_numbers(config) == [
+        "A url contains the placeholder '{participant}', but 'useParticipantNumbers' is false."
+    ]
+
+
+def test_participant_number_errors_are_reported_by_validate_config(config_dict):
+    config = participant_number_config(config_dict, participantNumberDigits=0)
+
+    with pytest.raises(ConfigValidationException) as exc_info:
+        ConfigValidator.validate_config(config)
+
+    assert any("participantNumberDigits" in message for message in exc_info.value.message_list)
+
+
+# ---------------------------------------------------------------------------
+# end_url without brackets
+# ---------------------------------------------------------------------------
+
+
+def test_plain_end_urls_are_one_link_per_condition(config_dict):
+    urls = config_dict()["urls"]
+    urls["end_url"] = ["https://example.com/end-a", "https://example.com/end-b"]
+    config = Config(**config_dict(urls=urls))
+
+    assert config.urls.end_url == [["https://example.com/end-a"], ["https://example.com/end-b"]]
+    ConfigValidator.validate_config(config)
+
+
+def test_plain_and_list_end_urls_can_be_mixed(config_dict):
+    urls = config_dict()["urls"]
+    urls["end_url"] = ["https://example.com/end-a", ["https://example.com/end-b"]]
+    config = Config(**config_dict(urls=urls))
+
+    assert config.urls.end_url == [["https://example.com/end-a"], ["https://example.com/end-b"]]
+
+
+def test_plain_end_url_with_several_end_days_is_still_validated(config_dict):
+    urls = config_dict()["urls"]
+    urls["end_url"] = ["https://example.com/end-a", "https://example.com/end-b"]
+    urls["end_url_distribution"] = "DAY"
+    config = Config(**config_dict(urls=urls, end_dates=["2026-05-18", "2026-05-19"], end_times=[["18:00"], ["18:00"]]))
+
+    errors = ConfigValidator.validate_urls(config)
+
+    assert any("number of days in 'end_dates' are 2" in error for error in errors)

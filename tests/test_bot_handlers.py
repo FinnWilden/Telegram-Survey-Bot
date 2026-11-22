@@ -64,6 +64,8 @@ def mock_config_handler():
     config.useTimeCalculation = False
     config.participantsEnterCondition = False
     config.uniqueConditions = False
+    config.useParticipantNumbers = False
+    config.participantNumberDigits = 5
     config.surveyCommandEnabled = True
     config.endSurveyReminderEnabled = False
 
@@ -373,3 +375,32 @@ async def test_tracking_failure_does_not_break_message_delivery(update, context,
 
     assert message.message_id == 999
     context.bot.send_message.assert_called_once_with(chat_id=123, text="Hello")
+
+
+@pytest.mark.asyncio
+async def test_subscribe_passes_participant_number_to_start_link(
+    update, context, mock_config_handler, mock_db_handler, monkeypatch
+):
+    mock_config_handler.config.useParticipantNumbers = True
+    mock_db_handler.assign_participant_number.return_value = "04711"
+    generate = Mock(return_value=Mock())
+    monkeypatch.setattr(bot.KeyboardBuilder, "generate_link_markup", generate)
+
+    await bot.subscribe(update, context)
+
+    mock_db_handler.assign_participant_number.assert_called_once_with(123, 5)
+    assert generate.call_args.kwargs["participant_number"] == "04711"
+
+
+def test_link_number_is_none_when_feature_disabled(mock_db_handler):
+    assert bot.get_link_participant_number(123) is None
+    mock_db_handler.assign_participant_number.assert_not_called()
+
+
+def test_link_number_uses_configured_digits(mock_config_handler, mock_db_handler):
+    mock_config_handler.config.useParticipantNumbers = True
+    mock_config_handler.config.participantNumberDigits = 7
+    mock_db_handler.assign_participant_number.return_value = "0000042"
+
+    assert bot.get_link_participant_number(123) == "0000042"
+    mock_db_handler.assign_participant_number.assert_called_once_with(123, 7)

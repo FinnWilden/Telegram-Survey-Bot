@@ -58,20 +58,35 @@ randomTimeShiftSettings:
 endSurveyReminderEnabled: true
 endSurveyReminderDelayHours: 1
 
+# Participant numbers: every participant gets a random number that no other
+# participant has, e.g. 04711. It is stored permanently and inserted into all
+# of that participant's links (start, daily and end), also after re-subscribing.
+# There is no limit on the number of participants: when all numbers with
+# 'participantNumberDigits' digits are taken, the next ones get one digit more.
+# Set 'useParticipantNumbers' to false to send the urls exactly as written.
+useParticipantNumbers: true
+participantNumberDigits: 5      # length of the number incl. leading zeros: 5 -> 04711
+
+# Every url must contain {participant} while 'useParticipantNumbers' is true.
+# It can stand anywhere in the url, in the middle or at the end:
+#   "https://survey.example/start?id={participant}&lang=de"
+#   "https://survey.example/start/{participant}"
+# One url per survey is enough. Add more urls (same count in all three lists)
+# only to run several conditions; participants are then split between them.
 urls:
   start_url:
-    - "https://example.com/start-a"
-    - "https://example.com/start-b"
+    - "https://example.com/start?id={participant}"
 
   daily_url:
-    - "https://example.com/daily-a"
-    - "https://example.com/daily-b"
+    - "https://example.com/daily?id={participant}"
 
   end_url:
-    - ["https://example.com/end-a"]
-    - ["https://example.com/end-b"]
+    - "https://example.com/end?id={participant}"
 
-  end_url_distribution: "DAY"
+  # NONE: one end url. DAY, TIME, MIXED or RANDOM use a different end url per
+  # end day/time; then write that condition's end urls as a list:
+  #   - ["https://example.com/end-day1?id={participant}", "https://example.com/end-day2?id={participant}"]
+  end_url_distribution: "NONE"
 
 texts:
   welcome: "Welcome to the survey bot."

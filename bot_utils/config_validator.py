@@ -20,7 +20,7 @@ along with Telegram Survey Bot.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
 from bot_utils.bot_enums import EndUrlDistribution
-from bot_utils.config import Config
+from bot_utils.config import MAX_PARTICIPANT_NUMBER_DIGITS, PARTICIPANT_PLACEHOLDER, Config
 
 
 class ConfigValidationException(Exception):
@@ -65,6 +65,7 @@ class ConfigValidator:
         error_list.extend(ConfigValidator.validate_dates_and_times(config))
         error_list.extend(ConfigValidator.validate_link_deletion_settings(config))
         error_list.extend(ConfigValidator.validate_urls(config))
+        error_list.extend(ConfigValidator.validate_participant_numbers(config))
         if error_list:
             raise ConfigValidationException(error_list)
 
@@ -214,4 +215,51 @@ class ConfigValidator:
             if not ConfigValidator._all_inner_lengths_equal(config.urls.end_url):
                 msg = "In distributionmode RANDOM every condition should have the same number of links"
                 error_list.append(msg)
+        return error_list
+
+    @staticmethod
+    def _all_urls(config: Config) -> list[str]:
+        return [
+            *config.urls.start_url,
+            *config.urls.daily_url,
+            *(url for condition_links in config.urls.end_url for url in condition_links),
+        ]
+
+    @staticmethod
+    def validate_participant_numbers(config: Config) -> list[str]:
+        """
+        Validates the participant number settings and the urls they are inserted into.
+
+        :param config: The config instance
+        :return: The list of error messages. Empty when there are no errors
+        """
+        error_list: list[str] = []
+        urls = ConfigValidator._all_urls(config)
+
+        if not config.useParticipantNumbers:
+            if any(PARTICIPANT_PLACEHOLDER in str(url) for url in urls):
+                error_list.append(
+                    "A url contains the placeholder '" + PARTICIPANT_PLACEHOLDER
+                    + "', but 'useParticipantNumbers' is false."
+                )
+            return error_list
+
+        digits = config.participantNumberDigits
+        if (
+            not isinstance(digits, int)
+            or isinstance(digits, bool)
+            or not 1 <= digits <= MAX_PARTICIPANT_NUMBER_DIGITS
+        ):
+            error_list.append(
+                "'participantNumberDigits' must be a whole number from 1 to "
+                + str(MAX_PARTICIPANT_NUMBER_DIGITS)
+            )
+
+        for url in urls:
+            if not isinstance(url, str) or PARTICIPANT_PLACEHOLDER not in url:
+                error_list.append(
+                    "Url '" + str(url) + "' must contain '" + PARTICIPANT_PLACEHOLDER
+                    + "' because 'useParticipantNumbers' is true."
+                )
+
         return error_list

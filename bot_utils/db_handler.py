@@ -20,6 +20,7 @@ along with Telegram Survey Bot.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
 import logging
+import random
 import sqlite3
 
 from datetime import datetime
@@ -27,11 +28,16 @@ from pathlib import Path
 from typing import TypedDict
 
 from bot_utils.bot_enums import SurveyType
+from bot_utils.config import MAX_PARTICIPANT_NUMBER_DIGITS
 from bot_utils.sql_statements import *
 
 from bot_utils.logging_strings import *
 
 DB_FILE = Path("db") / "userIdDb.db"
+
+# Up to this range size the free participant numbers are listed and one is chosen;
+# for larger ranges random numbers are drawn until a free one is found.
+FREE_NUMBER_ENUMERATION_LIMIT = 100_000
 
 
 class DashboardSummary(TypedDict):
@@ -50,6 +56,7 @@ class ParticipantOverview(TypedDict):
     condition: int | None
     wakeup_time: str | None
     time_offset: int | None
+    participant_number: str | None
     message_count: int
     last_message_at: str | None
 
@@ -82,6 +89,7 @@ class DbHandler:
             self.create_table(connection, CREATE_TABLE_CONDITIONS)
             self.create_table(connection, CREATE_TABLE_PARTICIPANTS)
             self.create_table(connection, CREATE_TABLE_OUTBOUND_MESSAGES)
+            self.create_table(connection, CREATE_TABLE_PARTICIPANT_NUMBERS)
             self.create_table(connection, CREATE_INDEX_OUTBOUND_MESSAGES_CHAT_ID)
             self._migrate_participants_table(connection)
             connection.execute(BACKFILL_PARTICIPANTS)
@@ -392,6 +400,92 @@ class DbHandler:
             )
             connection.commit()
 
+    def get_participant_number(self, chat_id: int) -> str | None:
+        """
+        Return the participant number of a chat id as used in links, or None if none was assigned yet.
+        """
+        with self.create_connection() as connection:
+            row = connection.execute(SELECT_PARTICIPANT_NUMBER, (chat_id,)).fetchone()
+
+        return None if row is None else row["code"]
+
+    def count_participant_numbers(self) -> int:
+        """
+        Return how many participant numbers have been assigned.
+        """
+        with self.create_connection() as connection:
+            row = connection.execute(COUNT_PARTICIPANT_NUMBERS).fetchone()
+
+        return row["used_count"]
+
+    def assign_participant_number(
+        self,
+        chat_id: int,
+        digits: int,
+        rng: random.Random | None = None,
+    ) -> str:
+        """
+        Return the participant's permanent number, drawing a new one if necessary.
+
+        A new number is drawn at random among the numbers with 'digits' digits
+        (leading zeros included, e.g. 00042) that no other participant has. When
+        all of them are taken, the number gets one more digit, so the number of
+        participants is unlimited. The number is stored exactly as it appears in
+        the links and never released, so it stays the same after unsubscribing,
+        re-subscribing, restarts and changes of 'digits'.
+
+        :return: The participant number as used in the links
+        """
+        rng = rng or random
+        with self.create_connection() as connection:
+            # Lock the database so two subscriptions cannot draw the same number.
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(SELECT_PARTICIPANT_NUMBER, (chat_id,)).fetchone()
+            if row is not None:
+                return row["code"]
+
+            for length in range(digits, MAX_PARTICIPANT_NUMBER_DIGITS + 1):
+                # the first length also covers the numbers that need leading zeros
+                min_number = 1 if length == digits else 10 ** (length - 1)
+                max_number = 10 ** length - 1
+                used_numbers = {
+                    used_row["number"]
+                    for used_row in connection.execute(SELECT_PARTICIPANT_NUMBERS_IN_RANGE, (min_number, max_number))
+                }
+                number = self._draw_free_number(used_numbers, min_number, max_number, rng)
+                if number is not None:
+                    break
+                logging.warning(PARTICIPANT_NUMBERS_LENGTH_FULL.format(length, length + 1))
+            else:
+                raise RuntimeError("No participant number with up to %d digits left" % MAX_PARTICIPANT_NUMBER_DIGITS)
+
+            code = str(number).zfill(digits)
+            connection.execute(INSERT_PARTICIPANT_NUMBER, (chat_id, number, code, self._timestamp_now()))
+            connection.commit()
+
+        logging.info(PARTICIPANT_NUMBER_ASSIGNED.format(chat_id, code))
+        return code
+
+    @staticmethod
+    def _draw_free_number(
+        used_numbers: set[int],
+        min_number: int,
+        max_number: int,
+        rng: random.Random,
+    ) -> int | None:
+        range_size = max_number - min_number + 1
+        if len(used_numbers) >= range_size:
+            return None
+
+        if range_size <= FREE_NUMBER_ENUMERATION_LIMIT:
+            free_numbers = [number for number in range(min_number, max_number + 1) if number not in used_numbers]
+            return rng.choice(free_numbers)
+
+        while True:
+            number = rng.randint(min_number, max_number)
+            if number not in used_numbers:
+                return number
+
     def record_outbound_message(self, chat_id: int, message_id: int, message_type: str) -> None:
         """
         Keep a permanent record of a successfully sent bot message.
@@ -438,6 +532,7 @@ class DbHandler:
                 "condition": row["condition"],
                 "wakeup_time": row["wakeup_time"],
                 "time_offset": row["time_offset"],
+                "participant_number": row["participant_number"],
                 "message_count": row["message_count"],
                 "last_message_at": row["last_message_at"],
             }

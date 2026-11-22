@@ -175,7 +175,14 @@ async def post_init(app: Application) -> None:
     application = app
     application_loop = asyncio.get_running_loop()
 
-    dashboard = ConsoleDashboard(db_handler, console)
+    dashboard = ConsoleDashboard(
+        db_handler,
+        console,
+        participant_number_digits=(
+            config_handler.config.participantNumberDigits
+            if config_handler.config.useParticipantNumbers else None
+        ),
+    )
     if dashboard.is_available(console):
         dashboard_stop_event = asyncio.Event()
         dashboard_task = asyncio.create_task(
@@ -280,6 +287,21 @@ def delete_message(chat_id: int, message_id: int) -> None:
 # -----------------------------------------------------------------------------
 # Telegram handlers
 # -----------------------------------------------------------------------------
+
+
+def get_link_participant_number(chat_id: int) -> str | None:
+    """
+    Return the number that completes this participant's survey links, or None when the
+    feature is disabled.
+
+    The number is drawn with the participant's first link and then reused for every
+    later link. Participants who subscribed before the feature was enabled get theirs
+    with their next link.
+    """
+    if not config_handler.config.useParticipantNumbers:
+        return None
+
+    return db_handler.assign_participant_number(chat_id, config_handler.config.participantNumberDigits)
 
 
 async def send_tracked_message(
@@ -534,7 +556,12 @@ async def send_subscribe_message(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     Sends the start survey link to a new subscriber.
     """
     logging.info(SUBSCRIPTION_FINISHED.format(chat_id))
-    markup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.SUBSCRIBE, condition)
+    markup = KeyboardBuilder.generate_link_markup(
+        config_handler,
+        SurveyType.SUBSCRIBE,
+        condition,
+        participant_number=get_link_participant_number(chat_id),
+    )
 
     db_handler.register_participant(chat_id, condition, context.user_data.pop("wakeup_time", None))
     msg = await send_tracked_message(
@@ -634,6 +661,7 @@ async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         config_handler,
         SurveyType.DAILY,
         condition,
+        participant_number=get_link_participant_number(chat_id),
     )
 
     logging.info(SEND_SURVEY.format(SurveyType.DAILY.name, chat_id))
@@ -672,7 +700,13 @@ async def handle_end_survey_reminder_callback(update: Update, context: ContextTy
 
     if callback_code[0] == ER_NO:
         condition, end_index = db_handler.get_condition_and_end_index(chat_id, callback_code[1])
-        markup = KeyboardBuilder.generate_link_markup(config_handler, SurveyType.END, condition, end_index)
+        markup = KeyboardBuilder.generate_link_markup(
+            config_handler,
+            SurveyType.END,
+            condition,
+            end_index,
+            get_link_participant_number(chat_id),
+        )
 
         msg = await send_tracked_message(
             context.bot,
@@ -724,11 +758,19 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
     msg_text: str = config_handler.get_message(survey_type)
 
     for chat_id, condition, end_index in subscriber_information:
+        try:
+            participant_number = get_link_participant_number(chat_id)
+        except (sqlite3.Error, RuntimeError) as err:
+            # one participant's database problem must not stop the broadcast for everyone else
+            logging.error("Can't send survey to %d, no participant number: %s", chat_id, err)
+            continue
+
         markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(
             config_handler,
             survey_type,
             condition,
             end_index,
+            participant_number,
         )
         try:
             logging.info(SEND_SURVEY.format(survey_type.name, chat_id))
