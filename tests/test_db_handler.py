@@ -370,73 +370,99 @@ def test_migrates_participants_table_created_without_parameter_columns(tmp_path,
 # ---------------------------------------------------------------------------
 
 
-def test_assign_participant_number_gives_every_participant_a_different_number(db_handler):
-    numbers = [db_handler.assign_participant_number(chat_id, 1, 20) for chat_id in range(100, 120)]
+def test_assign_participant_number_has_the_configured_length(db_handler):
+    number = db_handler.assign_participant_number(123, 5)
 
-    assert sorted(numbers) == list(range(1, 21))
-    assert db_handler.assign_participant_number(999, 1, 20) is None
-    assert db_handler.get_participant_number(999) is None
+    assert len(number) == 5
+    assert number.isdigit()
+    assert number != "00000"
+    assert db_handler.get_participant_number(123) == number
+
+
+def test_numbers_are_unique_and_overflow_to_more_digits_instead_of_running_out(db_handler):
+    # one digit gives the nine numbers 1-9; participant ten and later get two digits
+    numbers = [db_handler.assign_participant_number(chat_id, 1) for chat_id in range(25)]
+
+    assert sorted(numbers[:9]) == [str(n) for n in range(1, 10)]
+    assert all(len(number) == 2 and 10 <= int(number) <= 99 for number in numbers[9:])
+    assert len(set(numbers)) == 25
+    assert db_handler.count_participant_numbers() == 25
+
+
+def test_leading_zeros_are_kept(db_handler):
+    class Always:
+        def choice(self, numbers):
+            return 42
+
+    assert db_handler.assign_participant_number(123, 5, Always()) == "00042"
 
 
 def test_assign_participant_number_is_random(db_handler):
-    numbers = [db_handler.assign_participant_number(chat_id, 1, 1000) for chat_id in range(30)]
+    numbers = [db_handler.assign_participant_number(chat_id, 4) for chat_id in range(30)]
 
     # ascending numbers would mean the number is not drawn at random
     assert numbers != sorted(numbers)
 
 
 def test_assign_participant_number_uses_given_random_source(db_handler):
-    rng = random.Random(42)
-    expected = random.Random(42).choice(list(range(1, 501)))
+    expected = random.Random(42).choice(list(range(1, 1000)))
 
-    assert db_handler.assign_participant_number(123, 1, 500, rng) == expected
+    assert db_handler.assign_participant_number(123, 3, random.Random(42)) == f"{expected:03d}"
 
 
 def test_participant_keeps_number_across_calls_unsubscribe_and_restart(db_handler):
-    number = db_handler.assign_participant_number(123, 1, 1000)
+    number = db_handler.assign_participant_number(123, 5)
 
-    assert db_handler.assign_participant_number(123, 1, 1000) == number
+    assert db_handler.assign_participant_number(123, 5) == number
     db_handler.remove_subscriber(123)
     db_handler.delete_all_subscribers()
     assert db_handler.get_participant_number(123) == number
 
     restarted_db_handler = DbHandler()
-    assert restarted_db_handler.assign_participant_number(123, 1, 1000) == number
+    assert restarted_db_handler.assign_participant_number(123, 5) == number
 
 
-def test_existing_number_is_kept_when_range_changes(db_handler):
-    number = db_handler.assign_participant_number(123, 50, 50)
+def test_existing_number_is_kept_when_digits_change(db_handler):
+    number = db_handler.assign_participant_number(123, 3)
 
-    assert number == 50
-    assert db_handler.assign_participant_number(123, 1, 10) == 50
-
-
-def test_numbers_outside_the_range_do_not_block_it(db_handler):
-    db_handler.assign_participant_number(1, 500, 500)
-
-    assert db_handler.assign_participant_number(2, 1, 1) == 1
+    assert db_handler.assign_participant_number(123, 6) == number
+    assert len(db_handler.assign_participant_number(456, 6)) == 6
 
 
-def test_large_range_draws_without_listing_every_number(db_handler, monkeypatch):
+def test_shorter_numbers_from_an_old_setting_are_not_given_out_twice(db_handler):
+    class Fixed:
+        def __init__(self, value):
+            self.value = value
+
+        def choice(self, numbers):
+            return self.value if self.value in numbers else numbers[0]
+
+    db_handler.assign_participant_number(1, 2, Fixed(42))  # stored as 42, link "42"
+
+    # with 4 digits 42 would be "0042"; the same value must not be reused
+    assert db_handler.assign_participant_number(2, 4, Fixed(42)) != "0042"
+
+
+def test_many_digits_draw_without_listing_every_number(db_handler, monkeypatch):
     monkeypatch.setattr(db_module, "FREE_NUMBER_ENUMERATION_LIMIT", 10)
-    numbers = {db_handler.assign_participant_number(chat_id, 1, 1_000_000_000) for chat_id in range(50)}
+    numbers = {db_handler.assign_participant_number(chat_id, 12) for chat_id in range(50)}
 
     assert len(numbers) == 50
-    assert all(1 <= number <= 1_000_000_000 for number in numbers)
+    assert all(len(number) == 12 for number in numbers)
 
 
-def test_large_range_skips_numbers_already_taken(db_handler, monkeypatch):
+def test_many_digits_skip_numbers_already_taken(db_handler, monkeypatch):
     monkeypatch.setattr(db_module, "FREE_NUMBER_ENUMERATION_LIMIT", 1)
-    db_handler.assign_participant_number(1, 7, 7)
 
-    class FirstTakenThenFree:
-        def __init__(self):
-            self.values = iter([7, 7, 8])
+    class Draws:
+        def __init__(self, values):
+            self.values = iter(values)
 
         def randint(self, low, high):
             return next(self.values)
 
-    assert db_handler.assign_participant_number(2, 7, 8, FirstTakenThenFree()) == 8
+    assert db_handler.assign_participant_number(1, 2, Draws([7])) == "07"
+    assert db_handler.assign_participant_number(2, 2, Draws([7, 7, 8])) == "08"
 
 
 def test_concurrent_assignments_never_share_a_number(db_handler):
@@ -445,7 +471,7 @@ def test_concurrent_assignments_never_share_a_number(db_handler):
 
     def assign(chat_id):
         try:
-            results.append(DbHandler().assign_participant_number(chat_id, 1, 40))
+            results.append(DbHandler().assign_participant_number(chat_id, 1))
         except Exception as err:  # reported below
             errors.append(err)
 
@@ -456,11 +482,12 @@ def test_concurrent_assignments_never_share_a_number(db_handler):
         thread.join()
 
     assert errors == []
-    assert sorted(results) == list(range(1, 41))
+    assert len(set(results)) == 40
+    assert sorted(int(number) for number in results if len(number) == 1) == list(range(1, 10))
 
 
 def test_participant_overview_contains_participant_number(db_handler):
-    db_handler.assign_participant_number(123, 5, 5)
+    number = db_handler.assign_participant_number(123, 5)
     db_handler.register_participant(123, 0)
 
-    assert db_handler.get_participant_overview()[0]["participant_number"] == 5
+    assert db_handler.get_participant_overview()[0]["participant_number"] == number

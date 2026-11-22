@@ -97,7 +97,7 @@ single key presses (no Enter needed):
 
 | Key | View |
 |-----|------|
-| `d` | **Dashboard**: participant totals, active subscriptions, first and latest registration, and counts of sent messages (start, daily and end links, other messages); with participant numbers also how many numbers are assigned and still free |
+| `d` | **Dashboard**: participant totals, active subscriptions, first and latest registration, and counts of sent messages (start, daily and end links, other messages); with participant numbers also how many numbers are assigned |
 | `p` | **Participants**: one row per participant with Telegram chat ID, participant number (when enabled), first and latest registration, status (active/unsubscribed), the answers given during subscription (condition, wake-up time, time offset to the server), number of messages received and the latest delivery |
 | `v` | **Delivery history**: the 100 most recent messages sent by the bot with time, chat ID and message type |
 | `n` / `b` | Next / previous page in the participant and delivery views |
@@ -119,49 +119,46 @@ and delivery metadata, so protect it accordingly.
 
 # Participant numbers in survey links
 
-Survey tools often identify participants by a number in the link, e.g.
-`https://survey.example/start?id=1`, `...?id=2`, and so on. Instead of listing
-one full link per participant, you can enter only the fixed part of each link
-(the *stem*) and let the bot add a participant number:
+Survey tools often identify participants by a number in the link. Instead of
+listing one full link per participant, you write each link once with the
+placeholder `{participant}`, and the bot fills in a number for every
+participant:
 
 ```yaml
 useParticipantNumbers: true
-participantNumberSettings:
-  minNumber: 1      # smallest number that may be drawn
-  maxNumber: 500    # largest number that may be drawn
-  padToDigits: 3    # optional leading zeros: 7 -> 007 (0 = none)
+participantNumberDigits: 5    # 5 -> numbers like 04711 (default: 5)
 
 urls:
   start_url:
-    - "https://survey.example/start?group=a&id="
-    - "https://survey.example/start?group=b&id="
+    - "https://survey.example/start?id={participant}&lang=de"   # placeholder in the middle ...
   daily_url:
-    - "https://survey.example/daily?id={participant}&lang=de"
-    - "https://survey.example/daily?id={participant}&lang=en"
+    - "https://survey.example/daily/{participant}"               # ... or at the end
   end_url:
-    - ["https://survey.example/end-a/"]
-    - ["https://survey.example/end-b/"]
+    - "https://survey.example/end?id={participant}"
   end_url_distribution: "NONE"
 ```
 
-* Each participant gets a **random number** from `minNumber`..`maxNumber`
-  when they first send `/subscribe`. No two participants get the same number.
+* Every participant gets a **random number** with `participantNumberDigits`
+  digits (leading zeros included) when they receive their first link. No two
+  participants get the same number.
+* There is **no limit on participants**: when all numbers of that length are
+  taken, the next participants automatically get one digit more.
 * The number is **stored permanently** and used for **all** of that
   participant's links: start, daily, end, `/survey` and the end-survey
-  reminder. It stays the same after unsubscribing and subscribing again and
-  across bot restarts.
-* The number replaces `{participant}` in a stem; stems without the
-  placeholder get the number appended at the end. Keep the quotes around
-  stems in YAML.
-* The `urls` section keeps its structure: one stem per condition (and per end
-  link), so different surveys and conditions still have different stems.
-* When every number of the range is taken, new subscriptions are rejected
-  with the `subscribe_max_participants` text. Participants who already have a
-  number can still re-subscribe.
+  reminder. It stays the same after unsubscribing and subscribing again,
+  across bot restarts, and even if `participantNumberDigits` is changed later.
+* While `useParticipantNumbers` is `true`, **every url must contain
+  `{participant}`**, anywhere in the url. The bot refuses to start otherwise
+  and names the url. Keep the quotes around urls in YAML.
+* One url per survey type is enough. Several urls (the same count in
+  `start_url`, `daily_url` and `end_url`) define several conditions.
+* `end_url` entries are plain urls. A list per entry is only needed for the
+  `DAY`, `TIME`, `MIXED` and `RANDOM` distributions, which send a different end
+  url per end day or time.
 * Participants who subscribed before the option was enabled get their number
   with their next link.
-* With `useParticipantNumbers: false` (the default) the links are used exactly
-  as written, as before. Configs without these keys keep working unchanged.
+* With `useParticipantNumbers: false` the urls are sent exactly as written and
+  must not contain `{participant}`. Configs without these keys behave as before.
 
 ---
 

@@ -86,6 +86,7 @@ CREATE_TABLE_PARTICIPANT_NUMBERS = """
 CREATE TABLE IF NOT EXISTS participant_numbers (
     chat_id INTEGER PRIMARY KEY,
     number INTEGER NOT NULL UNIQUE,
+    code TEXT NOT NULL,
     assigned_at TEXT NOT NULL
 );
 """
@@ -321,7 +322,7 @@ SELECT
     participants.condition,
     participants.wakeup_time,
     offsets.offset AS time_offset,
-    participant_numbers.number AS participant_number,
+    participant_numbers.code AS participant_number,
     COUNT(outbound_messages.id) AS message_count,
     MAX(outbound_messages.sent_at) AS last_message_at
 FROM participants
@@ -347,15 +348,14 @@ LIMIT 100
 # ============================================================
 
 SELECT_PARTICIPANT_NUMBER = """
-SELECT number
+SELECT code
 FROM participant_numbers
 WHERE chat_id=?
 """
 
-COUNT_PARTICIPANT_NUMBERS_IN_RANGE = """
+COUNT_PARTICIPANT_NUMBERS = """
 SELECT COUNT(*) AS used_count
 FROM participant_numbers
-WHERE number BETWEEN ? AND ?
 """
 
 SELECT_PARTICIPANT_NUMBERS_IN_RANGE = """
@@ -365,6 +365,6 @@ WHERE number BETWEEN ? AND ?
 """
 
 INSERT_PARTICIPANT_NUMBER = """
-INSERT INTO participant_numbers (chat_id, number, assigned_at)
-VALUES (?, ?, ?)
+INSERT INTO participant_numbers (chat_id, number, code, assigned_at)
+VALUES (?, ?, ?, ?)
 """

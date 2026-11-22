@@ -162,15 +162,15 @@ class ConsoleDashboard:
         self,
         db_handler: DbHandler,
         console: Console,
-        participant_number_range: tuple[int, int] | None = None,
+        participant_number_digits: int | None = None,
     ) -> None:
         """
-        :param participant_number_range: (min, max) of the participant numbers, or None
-            when links are not completed with participant numbers
+        :param participant_number_digits: configured length of the participant numbers,
+            or None when links are not completed with participant numbers
         """
         self.db_handler = db_handler
         self.console = console
-        self.participant_number_range = participant_number_range
+        self.participant_number_digits = participant_number_digits
         self.view = "dashboard"
         self.page = 0
         self.command_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -307,16 +307,12 @@ class ConsoleDashboard:
                 if message_type not in SURVEY_LINK_TYPES
             )),
         )
-        if self.participant_number_range is not None:
-            min_number, max_number = self.participant_number_range
-            range_size = max_number - min_number + 1
-            used = self.db_handler.count_participant_numbers(min_number, max_number)
-            free = range_size - used
+        if self.participant_number_digits is not None:
             table.add_row(
                 "Nummern vergeben",
-                f"{used} / {range_size}",
-                "Nummern frei",
-                f"[bold red]{free}[/]" if free <= max(1, range_size // 10) else str(free),
+                str(self.db_handler.count_participant_numbers()),
+                "Nummernlänge",
+                f"{self.participant_number_digits} Stellen",
             )
         return Panel(table, title="Telegram Survey Bot · Live-Übersicht", border_style="cyan")
 
@@ -327,7 +323,7 @@ class ConsoleDashboard:
             ("Telegram-ID", "right", lambda p: str(p["chat_id"])),
             *(
                 [("Nr.", "right", lambda p: self._format_optional(p["participant_number"]))]
-                if self.participant_number_range is not None else []
+                if self.participant_number_digits is not None else []
             ),
             ("Erste Anm.", "left", lambda p: self._format_short_timestamp(p["first_registered_at"])),
             ("Letzte Anm.", "left", lambda p: self._format_short_timestamp(p["last_registered_at"])),

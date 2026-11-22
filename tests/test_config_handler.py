@@ -6,6 +6,7 @@ import pytest
 
 from bot_utils.bot_enums import SurveyType
 from bot_utils.config_handler import ConfigHandler
+from bot_utils.config_validator import ConfigValidationException
 
 @pytest.fixture
 def config_handler(tmp_path, config_dict):
@@ -140,41 +141,30 @@ def test_prefers_yml_over_yaml_and_json(tmp_path, monkeypatch, config_dict):
 # ---------------------------------------------------------------------------
 
 
-def make_participant_number_handler(tmp_path, config_dict, pad_to_digits=0, **url_overrides):
+def make_participant_number_handler(tmp_path, config_dict, **overrides):
     data = config_dict(
         useParticipantNumbers=True,
-        participantNumberSettings={"minNumber": 1, "maxNumber": 999, "padToDigits": pad_to_digits},
+        urls={
+            "start_url": ["https://example.com/start?id={participant}&lang=de"],
+            "daily_url": ["https://example.com/daily/{participant}"],
+            "end_url": ["https://example.com/end/{participant}/done"],
+            "end_url_distribution": "NONE",
+        },
+        **overrides,
     )
-    data["urls"].update(url_overrides)
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.safe_dump(data), encoding="utf-8")
     return ConfigHandler(config_file=config_file)
 
 
-def test_participant_number_is_appended_to_every_link_type(tmp_path, config_dict):
+def test_participant_number_replaces_placeholder_in_every_link_type(tmp_path, config_dict):
     handler = make_participant_number_handler(tmp_path, config_dict)
 
-    assert handler.get_url(SurveyType.SUBSCRIBE, 1, participant_number=42) == "https://example.com/start-b42"
-    assert handler.get_url(SurveyType.DAILY, 0, participant_number=42) == "https://example.com/daily-a42"
-    assert handler.get_url(SurveyType.END, 1, 0, participant_number=42) == "https://example.com/end-b42"
-
-
-def test_participant_number_replaces_placeholder(tmp_path, config_dict):
-    handler = make_participant_number_handler(
-        tmp_path,
-        config_dict,
-        daily_url=["https://example.com/s?id={participant}&lang=de", "https://example.com/{participant}/daily"],
-    )
-
-    assert handler.get_url(SurveyType.DAILY, 0, participant_number=7) == "https://example.com/s?id=7&lang=de"
-    assert handler.get_url(SurveyType.DAILY, 1, participant_number=7) == "https://example.com/7/daily"
-
-
-def test_participant_number_is_zero_padded(tmp_path, config_dict):
-    handler = make_participant_number_handler(tmp_path, config_dict, pad_to_digits=3)
-
-    assert handler.get_url(SurveyType.DAILY, 0, participant_number=7) == "https://example.com/daily-a007"
-    assert handler.get_url(SurveyType.DAILY, 0, participant_number=1234) == "https://example.com/daily-a1234"
+    assert handler.get_url(SurveyType.SUBSCRIBE, 0, participant_number="04711") == \
+        "https://example.com/start?id=04711&lang=de"
+    assert handler.get_url(SurveyType.DAILY, 0, participant_number="04711") == "https://example.com/daily/04711"
+    assert handler.get_url(SurveyType.END, 0, 0, participant_number="04711") == \
+        "https://example.com/end/04711/done"
 
 
 def test_participant_number_required_when_enabled(tmp_path, config_dict):
@@ -185,28 +175,48 @@ def test_participant_number_required_when_enabled(tmp_path, config_dict):
 
 
 def test_links_unchanged_when_participant_numbers_disabled(config_handler):
-    assert config_handler.get_url(SurveyType.DAILY, 0, participant_number=42) == "https://example.com/daily-a"
+    assert config_handler.get_url(SurveyType.DAILY, 0, participant_number="04711") == "https://example.com/daily-a"
 
 
-def test_handwritten_yaml_with_placeholder_loads(tmp_path, config_dict):
+def test_url_without_placeholder_is_rejected_at_startup(tmp_path, config_dict):
+    data = config_dict(useParticipantNumbers=True)  # default test urls have no placeholder
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    with pytest.raises(ConfigValidationException) as exc_info:
+        ConfigHandler(config_file=config_file)
+
+    assert "Url 'https://example.com/start-a' must contain '{participant}'" in exc_info.value.message_list[0]
+
+
+def test_handwritten_yaml_with_plain_end_url_loads(tmp_path, config_dict):
+    base = config_dict()
+    base.pop("urls")
     config_file = tmp_path / "config.yml"
     config_file.write_text(
-        yaml.safe_dump(config_dict()).replace("start-a", "start?id={participant}&src=bot")
+        yaml.safe_dump(base)
         + "useParticipantNumbers: true\n"
-        + "participantNumberSettings:\n"
-        + "  minNumber: 1\n"
-        + "  maxNumber: 50\n",
+        + "participantNumberDigits: 4\n"
+        + "urls:\n"
+        + "  start_url:\n"
+        + "    - \"https://example.com/start?id={participant}&src=bot\"\n"
+        + "  daily_url:\n"
+        + "    - \"https://example.com/daily/{participant}\"\n"
+        + "  end_url:\n"
+        + "    - \"https://example.com/end?id={participant}\"\n"
+        + "  end_url_distribution: \"NONE\"\n",
         encoding="utf-8",
     )
 
     handler = ConfigHandler(config_file=config_file)
 
-    assert handler.get_url(SurveyType.SUBSCRIBE, 0, participant_number=3) == "https://example.com/start?id=3&src=bot"
+    assert handler.config.participantNumberDigits == 4
+    assert handler.get_url(SurveyType.END, 0, 0, participant_number="0042") == "https://example.com/end?id=0042"
 
 
-@pytest.mark.parametrize("config_name", ["config.yml", "test.yml"])
-def test_shipped_config_templates_are_valid(config_name):
+@pytest.mark.parametrize("config_name, uses_participant_numbers", [("config.yml", True), ("test.yml", False)])
+def test_shipped_config_templates_are_valid(config_name, uses_participant_numbers):
     # config.yml is packaged with every precompiled release
     handler = ConfigHandler(config_file=Path(__file__).parent.parent / "config" / config_name)
 
-    assert handler.config.useParticipantNumbers is False
+    assert handler.config.useParticipantNumbers is uses_participant_numbers

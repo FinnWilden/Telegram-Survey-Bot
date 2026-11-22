@@ -20,7 +20,7 @@ along with Telegram Survey Bot.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
 from bot_utils.bot_enums import EndUrlDistribution
-from bot_utils.config import PARTICIPANT_PLACEHOLDER, Config
+from bot_utils.config import MAX_PARTICIPANT_NUMBER_DIGITS, PARTICIPANT_PLACEHOLDER, Config
 
 
 class ConfigValidationException(Exception):
@@ -228,45 +228,38 @@ class ConfigValidator:
     @staticmethod
     def validate_participant_numbers(config: Config) -> list[str]:
         """
-        Validates the participant number settings and the link stems they are combined with.
+        Validates the participant number settings and the urls they are inserted into.
 
         :param config: The config instance
         :return: The list of error messages. Empty when there are no errors
         """
         error_list: list[str] = []
+        urls = ConfigValidator._all_urls(config)
 
         if not config.useParticipantNumbers:
-            if any(PARTICIPANT_PLACEHOLDER in str(url) for url in ConfigValidator._all_urls(config)):
+            if any(PARTICIPANT_PLACEHOLDER in str(url) for url in urls):
                 error_list.append(
                     "A url contains the placeholder '" + PARTICIPANT_PLACEHOLDER
                     + "', but 'useParticipantNumbers' is false."
                 )
             return error_list
 
-        settings = config.participantNumberSettings
-        if settings is None:
-            error_list.append("'participantNumberSettings' is required when 'useParticipantNumbers' is true.")
-            return error_list
-
-        values = {
-            "minNumber": settings.minNumber,
-            "maxNumber": settings.maxNumber,
-            "padToDigits": settings.padToDigits,
-        }
-        invalid = [
-            name for name, value in values.items()
-            if not isinstance(value, int) or isinstance(value, bool) or value < 0
-        ]
-        for name in invalid:
-            error_list.append("'participantNumberSettings." + name + "' must be a whole number >= 0")
-        if not invalid and settings.minNumber > settings.maxNumber:
+        digits = config.participantNumberDigits
+        if (
+            not isinstance(digits, int)
+            or isinstance(digits, bool)
+            or not 1 <= digits <= MAX_PARTICIPANT_NUMBER_DIGITS
+        ):
             error_list.append(
-                "'participantNumberSettings.minNumber' must not be greater than 'participantNumberSettings.maxNumber'"
+                "'participantNumberDigits' must be a whole number from 1 to "
+                + str(MAX_PARTICIPANT_NUMBER_DIGITS)
             )
 
-        for url in ConfigValidator._all_urls(config):
-            if not isinstance(url, str) or not url.strip():
-                error_list.append("Every url stem must be a non-empty text when 'useParticipantNumbers' is true.")
-                break
+        for url in urls:
+            if not isinstance(url, str) or PARTICIPANT_PLACEHOLDER not in url:
+                error_list.append(
+                    "Url '" + str(url) + "' must contain '" + PARTICIPANT_PLACEHOLDER
+                    + "' because 'useParticipantNumbers' is true."
+                )
 
         return error_list

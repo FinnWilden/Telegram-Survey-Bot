@@ -101,13 +101,13 @@ class ConfigHandler:
         survey_type: SurveyType,
         condition: int,
         end_distribution: int = -1,
-        participant_number: int | None = None,
+        participant_number: str | None = None,
     ) -> str:
         """
         Return the survey link for a condition.
 
-        With 'useParticipantNumbers' the configured url is only a stem and the
-        participant's number is inserted at the placeholder or appended to it.
+        With 'useParticipantNumbers' the participant's number replaces the
+        placeholder in the configured url.
         """
         if survey_type == SurveyType.SUBSCRIBE:
             url = self.config.urls.start_url[condition]
@@ -124,17 +124,7 @@ class ConfigHandler:
         if participant_number is None:
             raise ValueError("A participant number is required when 'useParticipantNumbers' is enabled")
 
-        return self.build_participant_url(url, participant_number)
-
-    def format_participant_number(self, participant_number: int) -> str:
-        settings = self.config.participantNumberSettings
-        return str(participant_number).zfill(settings.padToDigits)
-
-    def build_participant_url(self, url_stem: str, participant_number: int) -> str:
-        number = self.format_participant_number(participant_number)
-        if PARTICIPANT_PLACEHOLDER in url_stem:
-            return url_stem.replace(PARTICIPANT_PLACEHOLDER, number)
-        return url_stem + number
+        return url.replace(PARTICIPANT_PLACEHOLDER, participant_number)
 
     def get_message(self, survey_type: SurveyType) -> str:
         if survey_type == SurveyType.DAILY:

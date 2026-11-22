@@ -65,7 +65,7 @@ def mock_config_handler():
     config.participantsEnterCondition = False
     config.uniqueConditions = False
     config.useParticipantNumbers = False
-    config.participantNumberSettings = SimpleNamespace(minNumber=1, maxNumber=10, padToDigits=0)
+    config.participantNumberDigits = 5
     config.surveyCommandEnabled = True
     config.endSurveyReminderEnabled = False
 
@@ -378,53 +378,29 @@ async def test_tracking_failure_does_not_break_message_delivery(update, context,
 
 
 @pytest.mark.asyncio
-async def test_subscribe_rejected_when_no_participant_number_is_left(
-    update, context, mock_config_handler, mock_db_handler, mock_schedule_util
-):
-    mock_config_handler.config.useParticipantNumbers = True
-    mock_db_handler.assign_participant_number.return_value = None
-
-    result = await bot.subscribe(update, context)
-
-    assert result == ConversationHandler.END
-    mock_db_handler.assign_participant_number.assert_called_once_with(123, 1, 10)
-    context.bot.send_message.assert_called_once_with(chat_id=123, text="Full")
-    mock_schedule_util.add_new_subscriber.assert_not_called()
-    mock_schedule_util.assign_condition.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_subscribe_passes_participant_number_to_start_link(
     update, context, mock_config_handler, mock_db_handler, monkeypatch
 ):
     mock_config_handler.config.useParticipantNumbers = True
-    mock_db_handler.assign_participant_number.return_value = 7
-    mock_db_handler.get_participant_number.return_value = 7
+    mock_db_handler.assign_participant_number.return_value = "04711"
     generate = Mock(return_value=Mock())
     monkeypatch.setattr(bot.KeyboardBuilder, "generate_link_markup", generate)
 
     await bot.subscribe(update, context)
 
-    assert generate.call_args.kwargs["participant_number"] == 7
+    mock_db_handler.assign_participant_number.assert_called_once_with(123, 5)
+    assert generate.call_args.kwargs["participant_number"] == "04711"
 
 
 def test_link_number_is_none_when_feature_disabled(mock_db_handler):
     assert bot.get_link_participant_number(123) is None
-    mock_db_handler.get_participant_number.assert_not_called()
+    mock_db_handler.assign_participant_number.assert_not_called()
 
 
-def test_link_number_is_assigned_for_participants_from_before_the_feature(mock_config_handler, mock_db_handler):
+def test_link_number_uses_configured_digits(mock_config_handler, mock_db_handler):
     mock_config_handler.config.useParticipantNumbers = True
-    mock_db_handler.get_participant_number.return_value = None
-    mock_db_handler.assign_participant_number.return_value = 4
+    mock_config_handler.config.participantNumberDigits = 7
+    mock_db_handler.assign_participant_number.return_value = "0000042"
 
-    assert bot.get_link_participant_number(123) == 4
-
-
-def test_link_number_raises_when_range_is_exhausted(mock_config_handler, mock_db_handler):
-    mock_config_handler.config.useParticipantNumbers = True
-    mock_db_handler.get_participant_number.return_value = None
-    mock_db_handler.assign_participant_number.return_value = None
-
-    with pytest.raises(bot.ParticipantNumberUnavailable):
-        bot.get_link_participant_number(123)
+    assert bot.get_link_participant_number(123) == "0000042"
+    mock_db_handler.assign_participant_number.assert_called_once_with(123, 7)

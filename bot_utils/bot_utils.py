@@ -57,7 +57,7 @@ class KeyboardBuilder:
         survey_type: SurveyType,
         condition: int,
         end_index: int = -1,
-        participant_number: int | None = None,
+        participant_number: str | None = None,
     ) -> InlineKeyboardMarkup:
         """
         Generate an InlineKeyboardMarkup with one survey start button.

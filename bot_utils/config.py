@@ -25,9 +25,14 @@ from datetime import datetime, time
 from bot_utils.bot_enums import EndUrlDistribution
 
 
-# Placeholder inside a url stem that is replaced by the participant number.
-# Without it, the number is appended to the end of the stem.
+# Placeholder that every survey url must contain when 'useParticipantNumbers' is
+# enabled. It is replaced by the participant's number and may stand anywhere in the url.
 PARTICIPANT_PLACEHOLDER = "{participant}"
+
+DEFAULT_PARTICIPANT_NUMBER_DIGITS = 5
+
+# SQLite integers hold at most 19 digits; 18 keeps every number of that length storable.
+MAX_PARTICIPANT_NUMBER_DIGITS = 18
 
 
 @dataclass
@@ -67,25 +72,22 @@ class RandomTimeShiftSettings:
 
 
 @dataclass
-class ParticipantNumberSettings:
-    """
-    Range and formatting of the random participant number appended to every survey link.
-    """
-    minNumber: int
-    maxNumber: int
-    padToDigits: int = 0
-
-
-@dataclass
 class Urls:
     start_url: list[str]
     daily_url: list[str]
-    end_url: list[list[str]]
+    end_url: list[list[str] | str]
     end_url_distribution: EndUrlDistribution | str
 
     def __post_init__(self) -> None:
         if isinstance(self.end_url_distribution, str):
             self.end_url_distribution = EndUrlDistribution[self.end_url_distribution]
+
+        # A plain url is the usual form: one end link per condition. A list is only
+        # needed when a condition has a different end link per end day or time.
+        self.end_url = [
+            [condition_links] if isinstance(condition_links, str) else condition_links
+            for condition_links in self.end_url
+        ]
 
 from dataclasses import dataclass
 
@@ -143,7 +145,7 @@ class Config:
     texts: Texts | dict
     help: Help | dict
     useParticipantNumbers: bool = False
-    participantNumberSettings: ParticipantNumberSettings | dict | None = None
+    participantNumberDigits: int = DEFAULT_PARTICIPANT_NUMBER_DIGITS
 
     def __post_init__(self) -> None:
         if isinstance(self.subscription_start_date, str):
@@ -192,9 +194,6 @@ class Config:
 
         if isinstance(self.urls, dict):
             self.urls = Urls(**self.urls)
-
-        if isinstance(self.participantNumberSettings, dict):
-            self.participantNumberSettings = ParticipantNumberSettings(**self.participantNumberSettings)
 
         if isinstance(self.texts, dict):
             self.texts = Texts(**self.texts)

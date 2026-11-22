@@ -178,11 +178,8 @@ async def post_init(app: Application) -> None:
     dashboard = ConsoleDashboard(
         db_handler,
         console,
-        participant_number_range=(
-            (
-                config_handler.config.participantNumberSettings.minNumber,
-                config_handler.config.participantNumberSettings.maxNumber,
-            )
+        participant_number_digits=(
+            config_handler.config.participantNumberDigits
             if config_handler.config.useParticipantNumbers else None
         ),
     )
@@ -292,41 +289,19 @@ def delete_message(chat_id: int, message_id: int) -> None:
 # -----------------------------------------------------------------------------
 
 
-class ParticipantNumberUnavailable(LookupError):
-    """
-    Raised when a participant needs a number for a link but the configured range is exhausted.
-    """
-
-
-def assign_participant_number(chat_id: int) -> int | None:
-    """
-    Return the participant's permanent number, drawing a new random one if needed.
-
-    :return: The number, or None when every number of the configured range is taken
-    """
-    settings = config_handler.config.participantNumberSettings
-    number = db_handler.assign_participant_number(chat_id, settings.minNumber, settings.maxNumber)
-    if number is not None:
-        logging.info(PARTICIPANT_NUMBER_ASSIGNED.format(chat_id, number))
-    return number
-
-
-def get_link_participant_number(chat_id: int) -> int | None:
+def get_link_participant_number(chat_id: int) -> str | None:
     """
     Return the number that completes this participant's survey links, or None when the
     feature is disabled.
 
-    Participants who subscribed before the feature was enabled get their number on first use.
+    The number is drawn with the participant's first link and then reused for every
+    later link. Participants who subscribed before the feature was enabled get theirs
+    with their next link.
     """
     if not config_handler.config.useParticipantNumbers:
         return None
 
-    number = db_handler.get_participant_number(chat_id)
-    if number is None:
-        number = assign_participant_number(chat_id)
-    if number is None:
-        raise ParticipantNumberUnavailable(f"No free participant number left for chat_id={chat_id}")
-    return number
+    return db_handler.assign_participant_number(chat_id, config_handler.config.participantNumberDigits)
 
 
 async def send_tracked_message(
@@ -395,15 +370,6 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             chat_id,
             SUBSCRIPTION_ALREADY_SUBSCRIBED,
             config_handler.config.texts.subscribe_already,
-        )
-        return ConversationHandler.END
-
-    if config_handler.config.useParticipantNumbers and assign_participant_number(chat_id) is None:
-        await subscribe_rejected(
-            context,
-            chat_id,
-            SUBSCRIPTION_PARTICIPANT_NUMBERS_FULL,
-            config_handler.config.texts.subscribe_max_participants,
         )
         return ConversationHandler.END
 
@@ -793,17 +759,19 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
 
     for chat_id, condition, end_index in subscriber_information:
         try:
-            markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(
-                config_handler,
-                survey_type,
-                condition,
-                end_index,
-                get_link_participant_number(chat_id),
-            )
-        except ParticipantNumberUnavailable as err:
-            logging.error("Can't send survey to %d: %s", chat_id, err)
+            participant_number = get_link_participant_number(chat_id)
+        except (sqlite3.Error, RuntimeError) as err:
+            # one participant's database problem must not stop the broadcast for everyone else
+            logging.error("Can't send survey to %d, no participant number: %s", chat_id, err)
             continue
 
+        markup: InlineKeyboardMarkup = KeyboardBuilder.generate_link_markup(
+            config_handler,
+            survey_type,
+            condition,
+            end_index,
+            participant_number,
+        )
         try:
             logging.info(SEND_SURVEY.format(survey_type.name, chat_id))
             msg = await send_tracked_message(
