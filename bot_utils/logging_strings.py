@@ -51,7 +51,11 @@ LINKS_OVERLAP = (
     "warning. (Calculated for a participant who subscribes at the wake-up time they enter; random time "
     "shifts are not included.)"
 )
-NEW_SURVEY_FAILED ="Could not start a new survey, the current survey continues unchanged: {}"
+END_REMINDER_ANSWER_OUTDATED = (
+    "{} answered 'No' to the end survey reminder of {}, which no longer belongs to a running survey "
+    "(unsubscribed or a new survey was started). No end link is sent."
+)
+NEW_SURVEY_FAILED = "Could not start a new survey, the current survey continues unchanged: {}"
 BOT_RUNNING = "Bot is running. Press Ctrl+C to stop it."
 EMERGENCY_DATES_FOUND = (
     "\n"

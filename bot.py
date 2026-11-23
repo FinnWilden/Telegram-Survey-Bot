@@ -916,7 +916,13 @@ async def handle_end_survey_reminder_callback(update: Update, context: ContextTy
     await delete_tracked_messages([(chat_id, message_id, None)], bot=context.bot)
 
     if callback_code[0] == ER_NO:
-        condition, end_index = db_handler.get_condition_and_end_index(chat_id, callback_code[1])
+        try:
+            condition, end_index = db_handler.get_condition_and_end_index(chat_id, callback_code[1])
+        except LookupError:
+            # a reminder of a survey that no longer runs for this participant (unsubscribed or
+            # a new survey was started): no end link of the old survey is sent any more
+            logging.info(END_REMINDER_ANSWER_OUTDATED.format(chat_id, callback_code[1]))
+            return
         markup = KeyboardBuilder.generate_link_markup(
             config_handler,
             SurveyType.END,

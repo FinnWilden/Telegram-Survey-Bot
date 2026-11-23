@@ -3,9 +3,11 @@ Tests for closing a survey and starting a new one with the same config (key u in
 the database and the overview files are saved under a new name, then the bot continues with an
 empty database, so everyone can subscribe again.
 """
+import logging
 import sqlite3
 from datetime import datetime
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -308,3 +310,61 @@ def test_without_new_survey_function_the_key_does_nothing(tmp_path, monkeypatch)
     dashboard.handle_command("u")
     assert not dashboard.confirming_new_survey
     assert "Neue Umfrage" not in shown(dashboard, console)
+
+
+# ----------------------------------------------------------------------------
+# Old end survey reminders
+# ----------------------------------------------------------------------------
+
+
+async def answer_no_to_reminder(study, chat_id, reminder_date_str, question_message_id=999):
+    async def answer():
+        return None
+
+    update = study.update(chat_id)
+    update.callback_query = SimpleNamespace(
+        data=f"{bot.ER_NO}+{reminder_date_str}",
+        message=SimpleNamespace(message_id=question_message_id),
+        answer=answer,
+    )
+    await bot.handle_end_survey_reminder_callback(update, study.context())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_survey", ["new survey", "unsubscribe"])
+async def test_no_to_a_reminder_of_a_closed_survey_only_removes_the_question(
+    running_study, monkeypatch, caplog, close_survey
+):
+    study = running_study
+    monkeypatch.setattr(study.config_handler.config, "endSurveyReminderEnabled", True)
+    await study.subscribe(101)
+    await study.send_end()
+    reminder_date_str = next(date.strftime("%Y-%m-%d-%H:%M") for date in study.db_handler.query_end_reminders())
+
+    if close_survey == "new survey":
+        bot.start_new_survey()
+    else:
+        await bot.unsubscribe(study.update(101, "/unsubscribe"), study.context())
+    study.telegram.clear()
+    caplog.set_level(logging.INFO)
+
+    await answer_no_to_reminder(study, 101, reminder_date_str)
+
+    assert deleted(study)[-1] == (101, 999)  # the question disappears as before
+    assert study.telegram.urls_for(101) == []  # no end link of the old survey
+    assert "no longer belongs to a running survey" in caplog.text
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_no_to_a_current_reminder_still_sends_the_end_link(running_study, monkeypatch):
+    study = running_study
+    monkeypatch.setattr(study.config_handler.config, "endSurveyReminderEnabled", True)
+    await study.subscribe(101)
+    await study.send_end()
+    reminder_date_str = next(date.strftime("%Y-%m-%d-%H:%M") for date in study.db_handler.query_end_reminders())
+    study.telegram.clear()
+
+    await answer_no_to_reminder(study, 101, reminder_date_str)
+
+    assert len(study.telegram.urls_for(101)) == 1
