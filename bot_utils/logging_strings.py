@@ -44,7 +44,14 @@ NEW_SURVEY_STARTED = (
     "New survey started: the previous survey was saved as {} (overview files: {}). "
     "Removed {} planned survey date(s) and reminder(s); participants can subscribe again."
 )
-NEW_SURVEY_FAILED = "Could not start a new survey, the current survey continues unchanged: {}"
+LINKS_OVERLAP = (
+    "Survey links overlap: with the current 'linkDeletionSettings', some links are still shown when the "
+    "next link arrives ({}). If every link should disappear before the next one is sent, set "
+    "'linkDeletionSettings.deleteOldLinksBeforeNewLink: true'. If the overlap is intended, ignore this "
+    "warning. (Calculated for a participant who subscribes at the wake-up time they enter; random time "
+    "shifts are not included.)"
+)
+NEW_SURVEY_FAILED ="Could not start a new survey, the current survey continues unchanged: {}"
 BOT_RUNNING = "Bot is running. Press Ctrl+C to stop it."
 EMERGENCY_DATES_FOUND = (
     "\n"

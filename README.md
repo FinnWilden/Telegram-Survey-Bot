@@ -30,7 +30,7 @@ The project is written in Python and supports Windows, Linux, and macOS.
 * Random, permanent participant numbers that complete survey link stems
 * Optional timezone support
 * Automatic survey reminder scheduling
-* Automatic deletion of expired survey links
+* Automatic deletion of expired survey links, optionally so that only the newest link is visible (`deleteOldLinksBeforeNewLink`)
 * SQLite-based lightweight persistence
 * Logging and emergency restart handling
 * Fully configurable through a single PyYaml configuration file

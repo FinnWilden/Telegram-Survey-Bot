@@ -104,6 +104,13 @@
 #  /survey verschwindet nach 10 Minuten oder beim nächsten Tages-Link, die
 #  Antwort "Du bist bereits angemeldet" nach einer Minute.
 #
+#  Der Start-Link und der 3. Tages-Link sind also noch zu sehen, wenn schon
+#  der nächste Link da ist. Darauf weist der Bot beim Start mit einer Warnung
+#  "Survey links overlap" hin. Soll immer nur der neueste Link zu sehen sein,
+#  setze unten deleteOldLinksBeforeNewLink: true. Dann verschwindet jeder Link
+#  direkt vor dem nächsten: der Start-Link um 14:08, der 3. Tages-Link um 14:15
+#  (der End-Link wie oben um 14:30).
+#
 #  Optional, Löschen nach einem Neustart testen: Beende den Bot nach dem
 #  End-Link (z. B. um 14:16) mit Strg + C und starte ihn nach 14:31
 #  wieder. Auf die Frage nach offenen Terminen mit y antworten (die
@@ -218,6 +225,8 @@ linkDeletionSettings:
   end_DeleteLinkAtNewLink: false
   end_DeleteLinkTimer: true
   end_DeleteDelayMinutes: 15                  # End-Link 15 Minuten nach Versand löschen
+
+  deleteOldLinksBeforeNewLink: false          # true: vor jedem neuen Link alle alten löschen
 
 # Keine zufällige Verschiebung, damit die Zeiten oben genau stimmen.
 randomTimeShiftSettings:
