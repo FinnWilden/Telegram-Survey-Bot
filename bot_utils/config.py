@@ -63,6 +63,9 @@ class LinkDeletionSettings:
     end_DeleteLinkAtNewLink: bool
     end_DeleteLinkTimer: bool
     end_DeleteDelayMinutes: int
+    # Before any survey link is sent, delete all survey links of that participant that are
+    # still shown (start, daily and end links), so only the newest link is ever visible.
+    deleteOldLinksBeforeNewLink: bool = False
 
 
 @dataclass

@@ -53,6 +53,11 @@ linkDeletionSettings:
   end_DeleteLinkTimer: false
   end_DeleteDelayMinutes: 120
 
+  # true: before every new survey link, all older start, daily and end links of the
+  # participant are deleted, so only the newest link is ever visible. The bot warns at
+  # startup when links would otherwise still be shown when the next link arrives.
+  deleteOldLinksBeforeNewLink: false
+
 randomTimeShiftSettings:
   daily_RandomTimeShiftMinutes: 5
   end_RandomTimeShiftMinutes: 0

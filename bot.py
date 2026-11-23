@@ -55,6 +55,7 @@ from bot_utils.config_validator import ConfigValidationException
 from bot_utils.console_dashboard import ConsoleDashboard
 from bot_utils.db_handler import DbHandler, TrackedMessage
 from bot_utils.emergency_start import EmergencyStart
+from bot_utils.link_overlap import find_link_overlaps
 from bot_utils.overview_export import EXPORT_FOLDER, OverviewExporter
 from bot_utils.schedule_util import ScheduleUtil
 from bot_utils.startup_errors import (
@@ -139,6 +140,7 @@ TELEGRAM_DELETE_LIMIT = timedelta(hours=48)
 START_LINK_TYPE = "START_LINK"   # start survey link; SUBSCRIBE is used for the subscription questions
 NOTICE_TYPE = "NOTICE"           # short notices such as "already subscribed", deleted after a minute
 NOTICE_DELETE_MINUTES = 1
+SURVEY_LINK_TYPES = (START_LINK_TYPE, SurveyType.DAILY.name, SurveyType.END.name)
 deletion_lock = asyncio.Lock()
 
 TIMEZONE_STATE = 0
@@ -331,6 +333,7 @@ def schedule_notifications() -> None:
         db_handler.schedule_deletion_for_type(SurveyType.SUBSCRIBE, config_handler.config.subscription_deadline)
 
     warn_about_telegram_delete_limit()
+    warn_about_link_overlaps()
 
     # readable copies of the operator console in the export folder, written at startup and every minute
     global overview_exporter
@@ -436,6 +439,19 @@ def remove_survey_jobs() -> int:
         except JobLookupError:
             pass  # ran just now
     return removed
+
+
+def warn_about_link_overlaps() -> None:
+    """
+    Warn when the deletion settings leave a survey link in the chat after the next one arrived.
+    """
+    try:
+        overlaps = find_link_overlaps(config_handler.config)
+    except (ValueError, TypeError) as err:  # only a hint; an unusual schedule must not stop the bot
+        logging.debug("Could not check the link deletion settings for overlapping links: %s", err)
+        return
+    if overlaps:
+        logging.warning(LINKS_OVERLAP.format("; ".join(overlap.describe() for overlap in overlaps)))
 
 
 def warn_about_telegram_delete_limit() -> None:
@@ -767,6 +783,7 @@ async def send_subscribe_message(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     )
 
     db_handler.register_participant(chat_id, condition, context.user_data.pop("wakeup_time", None))
+    await delete_links_before_new_link([chat_id], SurveyType.SUBSCRIBE, bot=context.bot)
     msg = await send_tracked_message(
         context.bot,
         chat_id,
@@ -781,8 +798,8 @@ async def send_subscribe_message(context: ContextTypes.DEFAULT_TYPE, chat_id: in
         delete_times.append(minutes_from_now(settings.start_DeleteDelayMinutes))
     if settings.start_DeleteLinkAtSubscriptionDeadline:
         delete_times.append(config_handler.config.subscription_deadline)
-    if delete_times:
-        db_handler.insert_message_id(chat_id, msg.message_id, START_LINK_TYPE, min(delete_times))
+    if delete_times or settings.deleteOldLinksBeforeNewLink:
+        db_handler.insert_message_id(chat_id, msg.message_id, START_LINK_TYPE, min(delete_times, default=None))
 
 
 async def subscribe_wakeup_time_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -871,6 +888,7 @@ async def send_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
     logging.info(SEND_SURVEY.format(SurveyType.DAILY.name, chat_id))
+    await delete_links_before_new_link([chat_id], SurveyType.DAILY, bot=context.bot)
 
     msg: Message = await send_tracked_message(
         context.bot,
@@ -907,6 +925,7 @@ async def handle_end_survey_reminder_callback(update: Update, context: ContextTy
             get_link_participant_number(chat_id),
         )
 
+        await delete_links_before_new_link([chat_id], SurveyType.END, bot=context.bot)
         msg = await send_tracked_message(
             context.bot,
             chat_id,
@@ -934,10 +953,7 @@ async def send_notification_broadcast_async(survey_type: SurveyType, job_id: str
         survey_type.name,
     )
 
-    if delete_link_at_new_link(survey_type):
-        await delete_tracked_messages(
-            db_handler.get_tracked_messages([x[0] for x in subscriber_information], survey_type)
-        )
+    await delete_links_before_new_link([x[0] for x in subscriber_information], survey_type)
 
     msg_text: str = config_handler.get_message(survey_type)
 
@@ -984,6 +1000,25 @@ def delete_link_at_new_link(survey_type: SurveyType) -> bool:
     if survey_type == SurveyType.END:
         return settings.end_DeleteLinkAtNewLink
     return False
+
+
+async def delete_links_before_new_link(chat_ids: list[int], survey_type: SurveyType, bot: Bot | None = None) -> None:
+    """
+    Deletes the links a new survey link replaces, right before it is sent: all start, daily and
+    end links of the participants with deleteOldLinksBeforeNewLink, otherwise the previous
+    links of the same type with daily_/end_DeleteLinkAtNewLink.
+    """
+    if config_handler.config.linkDeletionSettings.deleteOldLinksBeforeNewLink:
+        link_types = SURVEY_LINK_TYPES
+    elif delete_link_at_new_link(survey_type):
+        link_types = (survey_type.name,)
+    else:
+        return
+
+    await delete_tracked_messages(
+        [message for link_type in link_types for message in db_handler.get_tracked_messages(chat_ids, link_type)],
+        bot=bot,
+    )
 
 
 def link_delete_time(survey_type: SurveyType) -> datetime | None:

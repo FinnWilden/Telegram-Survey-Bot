@@ -106,6 +106,8 @@ def mock_config_handler():
         end_DeleteLinkAtNewLink=False,
         end_DeleteLinkTimer=False,
         end_DeleteDelayMinutes=1,
+
+        deleteOldLinksBeforeNewLink=False,
     )
 
     handler = Mock()
