@@ -39,6 +39,13 @@ SU_ADD_JOB = "Add job with id: {}"
 DB_UPDATE_CONDITION = "Update condition for {}: {}"
 DB_INSERT_SUBSCRIBER_ENTRY = "Insert subscriber entries:"
 DB_INSERT_SUBSCRIBER_ENTRY_DATA = "chat_id: {}, date_str: {}, survey_type: {}, condition: {}, end_distribution: {}"
+DB_SURVEY_ARCHIVED = "Saved the database of the closed survey as {}"
+NEW_SURVEY_STARTED = (
+    "New survey started: the previous survey was saved as {} (overview files: {}). "
+    "Removed {} planned survey date(s) and reminder(s); participants can subscribe again."
+)
+NEW_SURVEY_FAILED = "Could not start a new survey, the current survey continues unchanged: {}"
+BOT_RUNNING = "Bot is running. Press Ctrl+C to stop it."
 EMERGENCY_DATES_FOUND = (
     "\n"
     "--------------!!!!!!!     WARNING      !!!!!!!--------------\n\n"

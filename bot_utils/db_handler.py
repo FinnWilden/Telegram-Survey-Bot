@@ -49,6 +49,10 @@ FREE_NUMBER_ENUMERATION_LIMIT = 100_000
 # existed, reminders were stored as END and were rescheduled as end surveys on restart.
 END_REMINDER_TYPE = "END_REMINDER"
 
+# Tables that keep their rows when a new survey is started: the messages the bot still has
+# to delete, so links of the closed survey disappear as planned.
+SURVEY_RESET_KEPT_TABLES = {"messages"}
+
 
 class DashboardSummary(TypedDict):
     total_participants: int
@@ -323,6 +327,69 @@ class DbHandler:
             cursor.execute(MARK_ALL_PARTICIPANTS_UNSUBSCRIBED, (self._timestamp_now(),))
             cursor.execute(DELETE_ALL_SUBSCRIBERS)
             connection.commit()
+
+    @staticmethod
+    def archive_file(label: str) -> Path:
+        """
+        Where the database of a closed survey is saved, e.g. db/userIdDb_abgeschlossen_2026-11-23_10-45.db.
+        """
+        return DB_FILE.with_name(f"{DB_FILE.stem}_{label}{DB_FILE.suffix}")
+
+    def archive_and_reset(self, archive_file: Path) -> None:
+        """
+        Close the running survey: save a complete copy of the database as archive_file and empty
+        it for a new survey with the same config.
+
+        The remembered messages are kept, so links of the old survey are still deleted as planned.
+        The copy is made with SQLite's backup function and compared with the original before
+        anything is removed; if that fails, the database stays unchanged.
+
+        :param archive_file: the file for the copy; must not exist yet
+        """
+        if archive_file.exists():
+            raise FileExistsError(f"{archive_file} already exists")
+        archive_file.parent.mkdir(parents=True, exist_ok=True)
+
+        connection = self.create_connection()
+        try:
+            tables = [
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+                )
+            ]
+
+            # The bot calls this in its event loop without awaiting, so no participant data
+            # can change between the copy and the reset.
+            archive = sqlite3.connect(archive_file)
+            try:
+                connection.backup(archive)
+                for table in tables:
+                    original = connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+                    copied = archive.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+                    if original != copied:
+                        raise sqlite3.DatabaseError(
+                            f"copy of table {table} is incomplete ({copied} of {original} rows)"
+                        )
+            except Exception:
+                connection.rollback()
+                archive.close()
+                archive_file.unlink(missing_ok=True)
+                raise
+            archive.close()
+
+            for table in tables:
+                if table not in SURVEY_RESET_KEPT_TABLES:
+                    connection.execute(f'DELETE FROM "{table}"')
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'"
+            ).fetchone():
+                connection.execute("DELETE FROM sqlite_sequence")
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.logger.info(DB_SURVEY_ARCHIVED.format(archive_file))
 
     def get_condition(self, chat_id: int) -> int:
         """
