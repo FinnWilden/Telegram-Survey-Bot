@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import logging
 import math
 import os
 import sys
@@ -37,13 +38,16 @@ from rich.table import Table
 from rich.text import Text
 
 from bot_utils.db_handler import DbHandler
+from bot_utils.overview_export import EXPORT_FOLDER
 
 
 REFRESH_SECONDS = 2
 
 # Lines a paged table view needs besides its data rows:
 # title, header (3 lines incl. borders), bottom border, caption, control panel (3), two spare lines.
+# A control panel that needs more lines (narrow window, notice) is measured and added on top.
 TABLE_VIEW_OVERHEAD = 11
+CONTROL_PANEL_LINES = 3
 
 # Participant columns that are hidden, in this order, when the terminal is too narrow.
 # The participant's own answers (condition, wake-up time, offset) always stay visible.
@@ -71,6 +75,10 @@ VIEW_COMMANDS = {
     "p": "participants",
     "v": "messages",
 }
+
+NEW_SURVEY_KEY = "u"
+ARCHIVE_LABEL_EXAMPLE = "abgeschlossen_<Datum>_<Uhrzeit>"
+CONFIRM_KEYS = ("j", "y")
 
 
 class _KeyReader:
@@ -170,17 +178,24 @@ class ConsoleDashboard:
         db_handler: DbHandler,
         console: Console,
         participant_number_digits: int | None = None,
+        new_survey: Callable[[], str] | None = None,
     ) -> None:
         """
         :param participant_number_digits: configured length of the participant numbers,
             or None when links are not completed with participant numbers
+        :param new_survey: closes the running survey and starts a new one (key u, after a
+            confirmation); returns a short note where the old survey was saved
         """
         self.db_handler = db_handler
         self.console = console
         self.participant_number_digits = participant_number_digits
+        self.new_survey = new_survey
         self.view = "dashboard"
         self.page = 0
+        self.confirming_new_survey = False
+        self.notice: tuple[str, str] | None = None  # (text, style) shown until the next key
         self.command_queue: asyncio.Queue[str] = asyncio.Queue()
+        self.logger = logging.getLogger(__name__)
 
     @staticmethod
     def is_available(console: Console) -> bool:
@@ -222,7 +237,17 @@ class ConsoleDashboard:
     # ------------------------------------------------------------------
 
     def handle_command(self, command: str) -> None:
-        command = command.strip().lower()
+        command = command.lower()
+        self.notice = None
+
+        if self.confirming_new_survey:
+            self.confirming_new_survey = False
+            if command in CONFIRM_KEYS:
+                self._start_new_survey()
+            else:
+                self.notice = ("Abgebrochen, die Umfrage läuft unverändert weiter.", "yellow")
+            return
+
         if command in VIEW_COMMANDS:
             self.view = VIEW_COMMANDS[command]
             self.page = 0
@@ -230,6 +255,23 @@ class ConsoleDashboard:
             self.page += 1
         elif command == "b":
             self.page = max(0, self.page - 1)
+        elif command == NEW_SURVEY_KEY and self.new_survey is not None:
+            self.confirming_new_survey = True
+
+    def _start_new_survey(self) -> None:
+        assert self.new_survey is not None
+        try:
+            saved = self.new_survey()
+        except Exception as err:  # the old survey simply continues; show why
+            self.logger.exception("Could not start a new survey, the current survey continues unchanged")
+            self.notice = (
+                f"Neue Umfrage konnte nicht gestartet werden, die bisherige läuft unverändert weiter: {err}",
+                "bold red",
+            )
+            return
+        self.view = "dashboard"
+        self.page = 0
+        self.notice = (f"Neue Umfrage gestartet, die bisherige ist abgeschlossen. {saved}", "bold green")
 
     def _enqueue_key(self, loop: asyncio.AbstractEventLoop, key: str) -> None:
         try:
@@ -242,6 +284,8 @@ class ConsoleDashboard:
     # ------------------------------------------------------------------
 
     def render(self) -> Group:
+        if self.confirming_new_survey:
+            return Group(self._render_new_survey_question(), self._render_controls())
         if self.view == "participants":
             return Group(self._render_participants(), self._render_controls())
         if self.view == "messages":
@@ -264,7 +308,9 @@ class ConsoleDashboard:
             )
 
     def _paginate(self, rows: list[Any]) -> tuple[list[Any], str]:
-        per_page = max(1, self.console.size.height - TABLE_VIEW_OVERHEAD)
+        controls_height = len(self.console.render_lines(self._render_controls(), self.console.options))
+        overhead = TABLE_VIEW_OVERHEAD + max(0, controls_height - CONTROL_PANEL_LINES)
+        per_page = max(1, self.console.size.height - overhead)
         page_count = max(1, math.ceil(len(rows) / per_page))
         self.page = min(self.page, page_count - 1)
         start = self.page * per_page
@@ -405,11 +451,42 @@ class ConsoleDashboard:
 
         return table
 
+    def _render_new_survey_question(self) -> Panel:
+        active = self.db_handler.get_dashboard_summary()["active_participants"]
+        text = Text()
+        text.append("Die laufende Umfrage wird abgeschlossen und eine neue mit derselben Config gestartet:\n\n")
+        text.append("  • Die Datenbank wird gesichert als ")
+        text.append(str(self.db_handler.archive_file(ARCHIVE_LABEL_EXAMPLE)), style="bold")
+        text.append(",\n    die Übersichtsdateien im Ordner ")
+        text.append(f"{EXPORT_FOLDER / ARCHIVE_LABEL_EXAMPLE}{os.sep}", style="bold")
+        text.append(".\n")
+        text.append("  • Danach ist die Datenbank leer: keine Teilnehmenden, keine geplanten Termine.\n")
+        if active:
+            text.append(
+                f"    {active} aktive Teilnehmende bekommen keine weiteren Links und keine Erinnerung.\n",
+                style="bold yellow",
+            )
+        text.append("  • Alle können sich mit /subscribe neu anmelden; Teilnehmernummern werden neu vergeben.\n")
+        text.append("  • Bereits geplante Link-Löschungen werden weiterhin ausgeführt.\n\n")
+        text.append("Bist du sicher?", style="bold")
+        return Panel(text, title="Neue Umfrage starten?", border_style="red")
+
     def _render_controls(self) -> Panel:
-        controls = "[bold]d[/] Dashboard   [bold]p[/] Teilnehmende   [bold]v[/] Versandverlauf"
-        if self.view != "dashboard":
-            controls += "   [bold]n[/]/[bold]b[/] Seite vor/zurück"
-        return Panel(controls, border_style="dim")
+        if self.confirming_new_survey:
+            controls = "[bold]j[/] Ja, Umfrage abschließen und neu starten   [bold]jede andere Taste[/] Abbrechen"
+        else:
+            controls = "[bold]d[/] Dashboard   [bold]p[/] Teilnehmende   [bold]v[/] Versandverlauf"
+            if self.view != "dashboard":
+                controls += "   [bold]n[/]/[bold]b[/] Seite vor/zurück"
+            if self.new_survey is not None:
+                controls += "   [bold]u[/] Neue Umfrage"
+            controls += "   [bold]Strg+C[/] Bot beenden"
+
+        content = Text.from_markup(controls)
+        if self.notice is not None:
+            notice_text, style = self.notice
+            content = Text.assemble((notice_text, style), "\n", content)
+        return Panel(content, border_style="dim")
 
     # ------------------------------------------------------------------
     # Main loop

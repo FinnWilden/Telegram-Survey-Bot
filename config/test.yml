@@ -137,6 +137,8 @@
 #    p  Teilnehmende: Telegram-ID, Teilnehmernummer, Status, Aufwachzeit, ...
 #    v  Versandverlauf: die letzten 100 gesendeten Nachrichten
 #    n / b  nächste / vorherige Seite
+#    u  neue Umfrage: Testlauf abschließen und von vorne beginnen (siehe 5.)
+#    Strg + C  Bot beenden
 #
 #  Dieselben Infos stehen auch als Dateien im Ordner export (jede Minute
 #  aktualisiert): overview.txt, participants.csv und deliveries.csv. Die CSV-
@@ -152,10 +154,16 @@
 # -----------------------------------------------------------------------------
 #
 #  Die Testpersonen, ihre Teilnehmernummern und alle Versanddaten liegen in
-#  db/userIdDb.db. Bevor die echte Studie startet: Bot beenden und die Datei
-#  db/userIdDb.db löschen oder an einen anderen Ort verschieben. Sonst zählen
-#  die Testpersonen in der Studie mit und behalten ihre Nummern. Beim nächsten
-#  Start legt der Bot eine neue, leere Datenbank an.
+#  db/userIdDb.db. Bevor die echte Studie startet (oder für einen weiteren
+#  Testlauf), drücke im laufenden Bot die Taste u und bestätige mit j:
+#    - die Datenbank wird als db/userIdDb_abgeschlossen_<Datum>_<Uhrzeit>.db
+#      gesichert, die Übersichtsdateien in export/abgeschlossen_<Datum>_<Uhrzeit>/
+#    - der Bot läuft mit leerer Datenbank weiter; alle können sich neu
+#      anmelden und bekommen neue Teilnehmernummern.
+#  Ohne diesen Schritt zählen die Testpersonen in der Studie mit und behalten
+#  ihre Nummern. Für die echte Studie danach den Bot mit Strg + C beenden und
+#  mit der echten Config (z. B. config/config.yml) starten; u funktioniert
+#  auch dort direkt nach dem Start.
 #  Protokolle des Testlaufs liegen im Ordner log.
 #
 # =============================================================================

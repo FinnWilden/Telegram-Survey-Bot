@@ -19,7 +19,7 @@ along with Telegram Survey Bot. If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import annotations
 
-import asyncio, json, logging, sqlite3, sys
+import asyncio, json, logging, os, shutil, sqlite3, sys
 from asyncio import AbstractEventLoop
 from datetime import datetime, time, timedelta
 from pathlib import Path
@@ -55,7 +55,7 @@ from bot_utils.config_validator import ConfigValidationException
 from bot_utils.console_dashboard import ConsoleDashboard
 from bot_utils.db_handler import DbHandler, TrackedMessage
 from bot_utils.emergency_start import EmergencyStart
-from bot_utils.overview_export import OverviewExporter
+from bot_utils.overview_export import EXPORT_FOLDER, OverviewExporter
 from bot_utils.schedule_util import ScheduleUtil
 from bot_utils.startup_errors import (
     HideBootstrapTracebacks,
@@ -132,6 +132,9 @@ configure_log_levels(debug=False)
 DELETION_CHECK_SECONDS = 30
 EXPORT_INTERVAL_SECONDS = 60
 overview_exporter: OverviewExporter | None = None
+EXPORT_JOB_ID = "overview-export"
+DELETION_JOB_ID = "link-deletion"
+BACKGROUND_JOB_IDS = {EXPORT_JOB_ID, DELETION_JOB_ID}  # kept when a new survey is started
 TELEGRAM_DELETE_LIMIT = timedelta(hours=48)
 START_LINK_TYPE = "START_LINK"   # start survey link; SUBSCRIBE is used for the subscription questions
 NOTICE_TYPE = "NOTICE"           # short notices such as "already subscribed", deleted after a minute
@@ -248,6 +251,7 @@ async def post_init(app: Application) -> None:
             config_handler.config.participantNumberDigits
             if config_handler.config.useParticipantNumbers else None
         ),
+        new_survey=start_new_survey,
     )
     if dashboard.is_available(console):
         dashboard_stop_event = asyncio.Event()
@@ -266,6 +270,7 @@ async def post_init(app: Application) -> None:
 
     logging.info("Start scheduler...")
     scheduler.start()
+    logging.info(BOT_RUNNING)
 
 
 async def post_shutdown(_: Application) -> None:
@@ -339,7 +344,7 @@ def schedule_notifications() -> None:
         export_overview,
         "interval",
         seconds=EXPORT_INTERVAL_SECONDS,
-        id="overview-export",
+        id=EXPORT_JOB_ID,
         next_run_time=datetime.now(),
         replace_existing=True,
         max_instances=1,
@@ -351,7 +356,7 @@ def schedule_notifications() -> None:
         delete_due_messages,
         "interval",
         seconds=DELETION_CHECK_SECONDS,
-        id="link-deletion",
+        id=DELETION_JOB_ID,
         next_run_time=datetime.now(),
         replace_existing=True,
         max_instances=1,
@@ -369,6 +374,68 @@ def export_overview() -> None:
         overview_exporter.export()
     except Exception as err:  # the files are a convenience; problems must never stop the bot
         logging.error("Could not update the overview files in '%s': %s", overview_exporter.folder, err)
+
+
+def start_new_survey() -> str:
+    """
+    Closes the running survey and starts a new one with the same config (key u in the console).
+
+    The database is saved as db/userIdDb_abgeschlossen_<date>.db and the overview files as
+    export/abgeschlossen_<date>/; then the bot continues with an empty database, so everyone
+    can subscribe again. Planned survey dates and reminders of the old survey are removed,
+    planned link deletions are kept.
+
+    Runs in the event loop without awaiting, so no Telegram update is handled in between.
+
+    :return: a short German note for the console where the old survey was saved
+    """
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    label = f"abgeschlossen_{stamp}"
+    counter = 2
+    while db_handler.archive_file(label).exists() or (EXPORT_FOLDER / label).exists():
+        label = f"abgeschlossen_{stamp}_{counter}"
+        counter += 1
+
+    archive_file = db_handler.archive_file(label)
+    export_folder = EXPORT_FOLDER / label
+
+    try:
+        # final overview of the old survey; the database copy below is the complete record
+        OverviewExporter(
+            db_handler,
+            folder=export_folder,
+            participant_number_digits=overview_exporter.participant_number_digits if overview_exporter else None,
+        ).export()
+        db_handler.archive_and_reset(archive_file)
+    except Exception:
+        # the old survey continues unchanged, so no half-finished copy is left behind
+        shutil.rmtree(export_folder, ignore_errors=True)
+        raise
+
+    removed = remove_survey_jobs()
+    logging.info(NEW_SURVEY_STARTED.format(archive_file, export_folder, removed))
+    export_overview()
+
+    return f"Gesichert als {archive_file} (Übersicht: {export_folder}{os.sep})"
+
+
+def remove_survey_jobs() -> int:
+    """
+    Removes the planned survey dates and end reminders from the scheduler, keeping the
+    regular background jobs (overview export, link deletion).
+
+    :return: number of removed jobs
+    """
+    removed = 0
+    for job in scheduler.get_jobs():
+        if job.id in BACKGROUND_JOB_IDS:
+            continue
+        try:
+            scheduler.remove_job(job.id)
+            removed += 1
+        except JobLookupError:
+            pass  # ran just now
+    return removed
 
 
 def warn_about_telegram_delete_limit() -> None:

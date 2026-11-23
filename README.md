@@ -101,6 +101,8 @@ single key presses (no Enter needed):
 | `p` | **Participants**: one row per participant with Telegram chat ID, participant number (when enabled), first and latest registration, status (active, finished = registered but all survey dates are over, or unsubscribed), the answers given during subscription (condition, wake-up time, time offset to the server), number of messages received and the latest delivery |
 | `v` | **Delivery history**: the 100 most recent messages sent by the bot with time, chat ID and message type |
 | `n` / `b` | Next / previous page in the participant and delivery views |
+| `u` | **New survey**: after a confirmation with `j`, closes the running survey and starts a new one with the same config (see below) |
+| `Ctrl+C` | Stop the bot |
 
 Long tables are split into pages that fit the terminal height. On narrow
 terminals, less important participant columns are hidden; the participant's
@@ -116,6 +118,14 @@ The same information is also written to the `export` folder every minute (and at
 start and stop), so it can be read without the terminal or the database:
 `overview.txt` (the dashboard), `participants.csv` (all participants) and
 `deliveries.csv` (every sent message). The CSV files use `;` and open directly in Excel.
+
+**Starting a new survey** (`u`, e.g. after a test run): the database is saved as
+`db/userIdDb_abgeschlossen_<date>_<time>.db` and the overview files as
+`export/abgeschlossen_<date>_<time>/`. The bot then continues with an empty
+database: planned survey dates and end reminders of the old survey are removed,
+everyone can subscribe again and participant numbers are assigned anew. Links of
+the old survey that are planned for deletion are still deleted on time. Without
+a terminal, stop the bot and move `db/userIdDb.db` away instead.
 
 Unsubscribed participants and their delivery history remain in the database.
 For database entries that existed before this feature, Telegram IDs and
