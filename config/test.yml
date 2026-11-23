@@ -5,7 +5,8 @@
 #  Mit dieser Datei kannst du den Bot mit echten Personen ausprobieren, bevor
 #  die eigentliche Studie startet. Ein kompletter Durchlauf dauert etwa
 #  1 Stunde 15 Minuten. Alle Termine richten sich nach der Anmeldung der
-#  jeweiligen Person, du musst also keine Studientage eintragen.
+#  jeweiligen Person, du musst also keine Studientage eintragen. Auch das
+#  automatische Löschen der Links wird dabei getestet (siehe Abschnitt 3).
 #
 #  WICHTIG: Diese Datei ist die Vorlage im Git-Repository. Trage deinen Token
 #  NICHT hier ein, sondern arbeite mit einer Kopie (siehe 1a).
@@ -87,13 +88,31 @@
 #     dieser Uhrzeit aus berechnet.
 #
 #  Danach passiert automatisch (Beispiel mit Eingabe 14:05):
-#    sofort         Start-Link
+#    sofort         Start-Link; die Frage nach der Aufwachzeit verschwindet
 #    14:08          1. Tages-Link
-#    14:10          2. Tages-Link
-#    14:12          3. Tages-Link
+#    14:10          2. Tages-Link, der 1. Tages-Link verschwindet
+#    14:12          3. Tages-Link, der 2. Tages-Link verschwindet
 #    14:15          End-Link
+#    14:22          der 3. Tages-Link verschwindet (10 Minuten nach Versand)
+#    14:25          der Start-Link verschwindet (20 Minuten nach Versand)
+#    14:30          der End-Link verschwindet (15 Minuten nach Versand)
 #    15:15          Erinnerung "Hast du die End-Umfrage schon ausgefüllt?"
-#                   -> "Nein" schickt den End-Link erneut, "Ja" schließt ab.
+#                   -> "Nein" schickt den End-Link erneut (verschwindet nach
+#                   15 Minuten), "Ja" schließt ab.
+#
+#  Gelöscht wird bis zu 30 Sekunden nach der angegebenen Zeit. Ein Link per
+#  /survey verschwindet nach 10 Minuten oder beim nächsten Tages-Link, die
+#  Antwort "Du bist bereits angemeldet" nach einer Minute.
+#
+#  Optional, Löschen nach einem Neustart testen: Beende den Bot nach dem
+#  End-Link (z. B. um 14:16) mit Strg + C und starte ihn nach 14:31
+#  wieder. Auf die Frage nach offenen Terminen mit y antworten (die
+#  Erinnerung steht noch aus). Direkt nach dem Start verschwinden der
+#  3. Tages-Link, der Start-Link und der End-Link, weil sie in der Pause
+#  fällig wurden.
+#
+#  Hinweis: Telegram erlaubt Bots das Löschen nur bis 48 Stunden nach dem
+#  Versand. Ältere Links bleiben stehen; der Bot meldet das im Log.
 #
 #  Jederzeit möglich:
 #    /survey       schickt sofort einen Tages-Link
@@ -175,21 +194,22 @@ timeCalculationSettings:
   end_SurveysPerDay: 1
   end_DelayMinutesBetweenSurveys: 1
 
-# Links bleiben im Test im Chat stehen, damit man alles nachvollziehen kann.
+# Kurze Löschzeiten, damit jede Lösch-Einstellung im Testlauf sichtbar wird
+# (Zeitplan siehe Abschnitt 3 oben). Für die echte Studie längere Zeiten wählen.
 linkDeletionSettings:
-  deleteSubscriptionSetupMessages: false
+  deleteSubscriptionSetupMessages: true       # Frage nach der Aufwachzeit nach der Antwort löschen
 
-  start_DeleteLinkAtSubscriptionDeadline: false
-  start_DeleteLinkTimer: false
-  start_DeleteDelayMinutes: 240
+  start_DeleteLinkAtSubscriptionDeadline: false   # Anmeldeschluss liegt für einen Test zu weit weg
+  start_DeleteLinkTimer: true
+  start_DeleteDelayMinutes: 20                # Start-Link 20 Minuten nach Versand löschen
 
-  daily_DeleteLinkAtNewLink: false
-  daily_DeleteLinkTimer: false
-  daily_DeleteDelayMinutes: 30
+  daily_DeleteLinkAtNewLink: true             # neuer Tages-Link löscht den vorherigen
+  daily_DeleteLinkTimer: true
+  daily_DeleteDelayMinutes: 10                # Tages-Link spätestens 10 Minuten nach Versand löschen
 
   end_DeleteLinkAtNewLink: false
-  end_DeleteLinkTimer: false
-  end_DeleteDelayMinutes: 30
+  end_DeleteLinkTimer: true
+  end_DeleteDelayMinutes: 15                  # End-Link 15 Minuten nach Versand löschen
 
 # Keine zufällige Verschiebung, damit die Zeiten oben genau stimmen.
 randomTimeShiftSettings:
